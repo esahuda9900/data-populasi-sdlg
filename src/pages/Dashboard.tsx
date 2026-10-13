@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
-import { Truck, FileWarning, FileCheck, AlertCircle } from 'lucide-react'
+import { Truck, FileWarning, FileCheck, AlertCircle, MapPin, Wrench } from 'lucide-react'
 
 export default function Dashboard() {
   const { data: units = [], isLoading: loadingUnits } = useQuery({
@@ -8,7 +8,7 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data, error } = await supabase.from('units').select('*')
       if (error) throw error
-      return data
+      return data || []
     },
   })
 
@@ -19,11 +19,21 @@ export default function Dashboard() {
         .from('unit_documents')
         .select('*, document_types(name, code, is_required)')
       if (error) throw error
-      return data
+      return data || []
     },
   })
 
   const totalUnits = units.length
+  const byModel = units.reduce((acc: Record<string, number>, u: any) => {
+    const m = u.model || 'Unknown'
+    acc[m] = (acc[m] || 0) + 1
+    return acc
+  }, {})
+  const byCabang = units.reduce((acc: Record<string, number>, u: any) => {
+    const c = u.under_cabang || 'Unknown'
+    acc[c] = (acc[c] || 0) + 1
+    return acc
+  }, {})
   const missingDocs = docs.filter((d: any) => d.status === 'missing' || d.status === 'pending').length
   const uploadedDocs = docs.filter((d: any) => d.status === 'uploaded').length
   const requiredMissing = docs.filter(
@@ -49,7 +59,7 @@ export default function Dashboard() {
     <div className="space-y-8">
       <div>
         <h2 className="text-xl font-semibold text-surface-50">Dashboard</h2>
-        <p className="text-sm text-surface-400 mt-1">Overview populasi unit & status dokumen</p>
+        <p className="text-sm text-surface-400 mt-1">Overview populasi unit SDLG & status dokumen</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -66,12 +76,56 @@ export default function Dashboard() {
         ))}
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="card">
+          <div className="flex items-center gap-2 mb-4">
+            <Wrench className="w-4 h-4 text-surface-400" />
+            <h3 className="text-sm font-medium text-surface-200">Top Model</h3>
+          </div>
+          <div className="space-y-2">
+            {Object.entries(byModel)
+              .sort((a, b) => (b[1] as number) - (a[1] as number))
+              .slice(0, 8)
+              .map(([model, count]) => (
+                <div key={model} className="flex items-center justify-between text-sm">
+                  <span className="text-surface-300">{model}</span>
+                  <span className="font-medium text-surface-100">{count as number}</span>
+                </div>
+              ))}
+            {Object.keys(byModel).length === 0 && (
+              <p className="text-sm text-surface-500">Belum ada data</p>
+            )}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="flex items-center gap-2 mb-4">
+            <MapPin className="w-4 h-4 text-surface-400" />
+            <h3 className="text-sm font-medium text-surface-200">Per Cabang</h3>
+          </div>
+          <div className="space-y-2">
+            {Object.entries(byCabang)
+              .sort((a, b) => (b[1] as number) - (a[1] as number))
+              .slice(0, 8)
+              .map(([cabang, count]) => (
+                <div key={cabang} className="flex items-center justify-between text-sm">
+                  <span className="text-surface-300">{cabang}</span>
+                  <span className="font-medium text-surface-100">{count as number}</span>
+                </div>
+              ))}
+            {Object.keys(byCabang).length === 0 && (
+              <p className="text-sm text-surface-500">Belum ada data</p>
+            )}
+          </div>
+        </div>
+      </div>
+
       {totalUnits === 0 && (
         <div className="card text-center py-12">
           <Truck className="w-10 h-10 text-surface-600 mx-auto mb-3" />
-          <p className="text-surface-300 font-medium">Belum ada data unit</p>
+          <p className="text-surface-300 font-medium">Data unit sedang di-import</p>
           <p className="text-sm text-surface-500 mt-1">
-            Upload CSV data unit nanti, atau tambah manual di halaman Unit.
+            Master data sedang diproses. Refresh halaman setelah beberapa saat.
           </p>
         </div>
       )}
@@ -84,7 +138,7 @@ export default function Dashboard() {
           </div>
           <p className="text-sm text-surface-300">
             Ada <strong>{requiredMissing}</strong> dokumen wajib yang belum di-upload.
-            Cek halaman <a href="#/documents" className="text-accent hover:underline">Dokumen</a> untuk detail.
+            Cek halaman Dokumen untuk detail.
           </p>
         </div>
       )}
