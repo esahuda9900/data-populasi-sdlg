@@ -10,16 +10,13 @@ export interface UnitComplianceStatus {
   yearDelivery: number | null
   isImport2026: boolean
 
-  // 1. Arrival
   hasArrival: boolean
   arrivalStatus: string
 
-  // 2. PDI
   hasPdiCheck: boolean
   pdiCheckStatus: string
   hasPdiDocument: boolean
 
-  // 3. Maintenance Stock 1, 2, 3
   hasMS1: boolean
   ms1Status: string
   hasMS2: boolean
@@ -27,27 +24,21 @@ export interface UnitComplianceStatus {
   hasMS3: boolean
   ms3Status: string
 
-  // 4. CSA (Customer Service Agreement) for 2026 import
   csaRequired: boolean
   hasCSA: boolean
   csaStatus: string
 
-  // 5. Commissioning (COMM)
   hasComm: boolean
   commStatus: string
 
-  // Data completeness
   isModelMissing: boolean
   isDetailsMissing: boolean
 
-  // Overall readiness
   isFullyReady: boolean
   rawUnit: Unit
 }
 
-/**
- * Checks if a string indicates completion ('DONE', 'SELESAI', 'SUDAH', 'OK', etc.)
- */
+/** Status DONE-like */
 export function isStatusDone(val: string | null | undefined): boolean {
   if (!val) return false
   const s = val.trim().toUpperCase()
@@ -55,7 +46,8 @@ export function isStatusDone(val: string | null | undefined): boolean {
 }
 
 /**
- * Evaluates the full compliance and milestone status for a unit
+ * Client-side compliance evaluator — aligned with docs/BUSINESS_LOGIC.md
+ * and public.v_unit_compliance (server source of truth).
  */
 export function evaluateUnitCompliance(
   unit: Unit,
@@ -64,16 +56,16 @@ export function evaluateUnitCompliance(
   resolvedModel: string = '—'
 ): UnitComplianceStatus {
   const isImport2026 = unit.year_delivery === 2026
+  const anyProc = process as Record<string, unknown> | null | undefined
 
-  // 1. Arrival Check
   const arrivalVal = process?.arrival_check
-  const hasArrival = isStatusDone(arrivalVal)
+  const hasArrival =
+    isStatusDone(arrivalVal) ||
+    !!(anyProc?.arrival_date as string | undefined)
 
-  // 2. PDI Process & Document
   const pdiCheckVal = process?.pdi_check
   const hasPdiCheck = isStatusDone(pdiCheckVal)
 
-  // Look for PDI document in unit_documents
   const pdiDoc = documents.find((d) => {
     const name = (d.document_types?.name || '').toUpperCase()
     const code = (d.document_types?.code || '').toUpperCase()
@@ -81,59 +73,46 @@ export function evaluateUnitCompliance(
   })
   const hasPdiDocument = pdiDoc ? pdiDoc.status === 'uploaded' : false
 
-  // 3. Maintenance Stock 1, 2, 3
-  // Check from unit_process (any ms fields) or documents
-  const anyProc = process as Record<string, any> | null | undefined
-  const ms1Val = anyProc?.ms1_check || anyProc?.ms_1 || anyProc?.maintenance_stock_1
-  const ms2Val = anyProc?.ms2_check || anyProc?.ms_2 || anyProc?.maintenance_stock_2
-  const ms3Val = anyProc?.ms3_check || anyProc?.ms_3 || anyProc?.maintenance_stock_3
+  // Canonical DB columns: ms_check_1/2/3
+  const ms1Val =
+    (anyProc?.ms_check_1 as string) ||
+    (anyProc?.ms1_check as string) ||
+    (anyProc?.ms_1 as string)
+  const ms2Val =
+    (anyProc?.ms_check_2 as string) ||
+    (anyProc?.ms2_check as string) ||
+    (anyProc?.ms_2 as string)
+  const ms3Val =
+    (anyProc?.ms_check_3 as string) ||
+    (anyProc?.ms3_check as string) ||
+    (anyProc?.ms_3 as string)
 
-  const ms1Doc = documents.find((d) => {
-    const name = (d.document_types?.name || '').toUpperCase()
-    return name.includes('MS 1') || name.includes('MS1') || name.includes('MAINTENANCE STOCK 1')
-  })
-  const ms2Doc = documents.find((d) => {
-    const name = (d.document_types?.name || '').toUpperCase()
-    return name.includes('MS 2') || name.includes('MS2') || name.includes('MAINTENANCE STOCK 2')
-  })
-  const ms3Doc = documents.find((d) => {
-    const name = (d.document_types?.name || '').toUpperCase()
-    return name.includes('MS 3') || name.includes('MS3') || name.includes('MAINTENANCE STOCK 3')
-  })
+  const hasMS1 = isStatusDone(ms1Val)
+  const hasMS2 = isStatusDone(ms2Val)
+  const hasMS3 = isStatusDone(ms3Val)
 
-  const hasMS1 = isStatusDone(ms1Val) || (ms1Doc ? ms1Doc.status === 'uploaded' : false)
-  const hasMS2 = isStatusDone(ms2Val) || (ms2Doc ? ms2Doc.status === 'uploaded' : false)
-  const hasMS3 = isStatusDone(ms3Val) || (ms3Doc ? ms3Doc.status === 'uploaded' : false)
-
-  // 4. CSA for Import 2026
   const csaDoc = documents.find((d) => {
     const name = (d.document_types?.name || '').toUpperCase()
     const code = (d.document_types?.code || '').toUpperCase()
     return (
+      code === 'CSA' ||
       name.includes('CSA') ||
-      code.includes('CSA') ||
-      name.includes('CUSTOMER SERVICE AGREEMENT') ||
-      name.includes('SERVICE AGREEMENT')
+      name.includes('CUSTOMER SERVICE AGREEMENT')
     )
   })
   const hasCSA = csaDoc ? csaDoc.status === 'uploaded' : false
   const csaStatus = !isImport2026
     ? 'Non-2026'
     : hasCSA
-    ? 'Sudah CSA'
-    : 'Wajib CSA (Belum)'
+      ? 'Sudah CSA'
+      : 'Wajib CSA (Belum)'
 
-  // 5. Commissioning Check
   const commVal = process?.comm_check
   const hasComm = isStatusDone(commVal)
 
-  // Overall readiness
+  // Fully ready = sequential gates (server is_process_complete is stricter: needs sales+delivery)
   const isFullyReady =
-    hasArrival &&
-    hasPdiCheck &&
-    hasPdiDocument &&
-    hasComm &&
-    (!isImport2026 || hasCSA)
+    hasArrival && hasPdiCheck && hasComm && (!isImport2026 || hasCSA)
 
   return {
     unitId: unit.id,
@@ -167,8 +146,27 @@ export function evaluateUnitCompliance(
     commStatus: hasComm ? 'DONE' : commVal || 'KOSONG',
 
     isFullyReady,
-    isModelMissing: !unit.model || unit.model.trim() === '' || unit.model === 'KOSONG' || unit.model === 'Unknown' || unit.model === '—',
+    isModelMissing:
+      !unit.model ||
+      unit.model.trim() === '' ||
+      unit.model === 'KOSONG' ||
+      unit.model === 'Unknown' ||
+      unit.model === '—',
     isDetailsMissing: !unit.customer || !unit.under_cabang || !unit.year_delivery,
     rawUnit: unit,
   }
+}
+
+export const PROCESS_BLOCKER_LABELS: Record<string, string> = {
+  MISSING_ARRIVAL: 'Arrival kosong',
+  MS1_OVERDUE: 'MS1 overdue (≥3 bln)',
+  MS2_OVERDUE: 'MS2 overdue',
+  MS3_OVERDUE: 'MS3 overdue',
+  CSA_2026_MISSING: 'CSA 2026 belum',
+  MISSING_PDI: 'PDI kosong',
+  MISSING_DELIVERY: 'Delivery kosong',
+  MISSING_COMM: 'Commissioning kosong',
+  COMPLETE: 'Lengkap',
+  IN_STOCK: 'Masih stock',
+  IN_PROGRESS: 'Dalam proses',
 }
