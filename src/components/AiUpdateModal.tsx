@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase, Unit } from '../lib/supabase'
+import { parseAiUpdate } from '../lib/aiParseClient'
 import {
   Sparkles,
   X,
@@ -9,16 +10,10 @@ import {
   CheckCircle2,
   AlertCircle,
   Truck,
-  ArrowRight,
   RotateCcw,
   Bot,
   Zap,
-  Building,
   Check,
-  Calendar,
-  MapPin,
-  User,
-  ShieldCheck,
 } from 'lucide-react'
 
 interface AiUpdateModalProps {
@@ -60,14 +55,13 @@ export default function AiUpdateModal({
   const [parseError, setParseError] = useState<string | null>(null)
   const [parsedData, setParsedData] = useState<ParsedResult | null>(null)
 
-  // Execution state
   const [isExecuting, setIsExecuting] = useState(false)
   const [executeSuccess, setExecuteSuccess] = useState<string | null>(null)
   const [executeError, setExecuteError] = useState<string | null>(null)
 
   if (!isOpen) return null
 
-  // Handle parsing natural language prompt
+  // Tries Express /api when available (local server); falls back to client rule-heuristic on GH Pages
   const handleParse = async () => {
     if (!prompt.trim()) return
 
@@ -78,31 +72,20 @@ export default function AiUpdateModal({
     setExecuteError(null)
 
     try {
-      const res = await fetch('/api/ai-parse-update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt,
-          contextUnits: contextUnits.map((u) => ({
-            id: u.id,
-            unit_number: u.unit_number,
-            vin: u.vin,
-            model: u.model,
-            under_cabang: u.under_cabang,
-            customer: u.customer,
-            location: u.location,
-            status: u.status,
-          })),
-        }),
-      })
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}))
-        throw new Error(errJson.error || `HTTP error ${res.status}`)
-      }
-
-      const data: ParsedResult = await res.json()
-      setParsedData(data)
+      const data = await parseAiUpdate(
+        prompt,
+        contextUnits.map((u) => ({
+          id: u.id,
+          unit_number: u.unit_number,
+          vin: u.vin,
+          model: u.model,
+          under_cabang: u.under_cabang,
+          customer: u.customer,
+          location: u.location,
+          status: u.status,
+        }))
+      )
+      setParsedData(data as ParsedResult)
     } catch (err: any) {
       console.error('AI parse error:', err)
       setParseError(err.message || 'Gagal memproses teks dengan AI.')
@@ -111,7 +94,6 @@ export default function AiUpdateModal({
     }
   }
 
-  // Handle executing the parsed changes to Supabase
   const handleApplyChanges = async () => {
     if (!parsedData) return
     setIsExecuting(true)
@@ -119,7 +101,6 @@ export default function AiUpdateModal({
     setExecuteSuccess(null)
 
     try {
-      // Find matching target unit
       let targetUnit: Unit | undefined
       if (parsedData.matchedUnitId) {
         targetUnit = contextUnits.find((u) => u.id === parsedData.matchedUnitId)
@@ -142,7 +123,6 @@ export default function AiUpdateModal({
         )
       }
 
-      // If unit not found in context, attempt direct DB search
       if (!targetUnit) {
         const queryTerm = parsedData.matchedUnitNumber || parsedData.targetIdentifier
         const { data: dbUnit } = await supabase
@@ -163,7 +143,6 @@ export default function AiUpdateModal({
         )
       }
 
-      // 1. Update 'units' table if there are unit updates
       if (parsedData.unitUpdates && Object.keys(parsedData.unitUpdates).length > 0) {
         const { error: unitErr } = await supabase
           .from('units')
@@ -176,7 +155,6 @@ export default function AiUpdateModal({
         if (unitErr) throw unitErr
       }
 
-      // 2. Update 'unit_process' table if there are process updates
       if (parsedData.processUpdates && Object.keys(parsedData.processUpdates).length > 0) {
         const targetVin = targetUnit.vin || targetUnit.unit_number
         const { error: procErr } = await supabase.from('unit_process').upsert(
@@ -190,7 +168,6 @@ export default function AiUpdateModal({
         if (procErr) throw procErr
       }
 
-      // Invalidate queries so UI updates immediately
       queryClient.invalidateQueries({ queryKey: ['units_page'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard_full_compliance_data'] })
       queryClient.invalidateQueries({ queryKey: ['process_page_data'] })
@@ -218,7 +195,6 @@ export default function AiUpdateModal({
     setExecuteError(null)
   }
 
-  // Find target unit in context if parsed
   const matchedUnitInContext = parsedData
     ? contextUnits.find(
         (u) =>
@@ -230,12 +206,9 @@ export default function AiUpdateModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
       <div className="fixed inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Modal Dialog */}
       <div className="relative w-full max-w-2xl bg-surface-900 border border-surface-700 rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
-        {/* Header */}
         <div className="p-5 border-b border-surface-800 flex items-center justify-between bg-gradient-to-r from-surface-950 via-surface-900 to-accent/10">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-accent/20 border border-accent/40 flex items-center justify-center text-accent shadow-sm">
@@ -261,9 +234,7 @@ export default function AiUpdateModal({
           </button>
         </div>
 
-        {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {/* Success Banner */}
           {executeSuccess && (
             <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-start justify-between gap-3 animate-fadeIn">
               <div className="flex items-start gap-2.5">
@@ -282,7 +253,6 @@ export default function AiUpdateModal({
             </div>
           )}
 
-          {/* Quick Example Chips */}
           {!parsedData && (
             <div className="space-y-1.5">
               <span className="text-[11px] text-surface-400 font-medium flex items-center gap-1.5">
@@ -303,7 +273,6 @@ export default function AiUpdateModal({
             </div>
           )}
 
-          {/* Prompt Input Form */}
           {!parsedData && (
             <div className="space-y-2">
               <label className="text-xs font-semibold text-surface-300 flex items-center justify-between">
@@ -353,10 +322,8 @@ export default function AiUpdateModal({
             </div>
           )}
 
-          {/* AI Parsing Diff & Confirmation Result */}
           {parsedData && (
             <div className="space-y-4 animate-fadeIn">
-              {/* Target Identification Card */}
               <div className="p-4 rounded-xl bg-surface-950 border border-surface-800 flex items-start justify-between gap-4">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
@@ -383,7 +350,8 @@ export default function AiUpdateModal({
                     <span>{parsedData.matchedUnitNumber || parsedData.targetIdentifier}</span>
                     {matchedUnitInContext && (
                       <span className="text-xs font-normal text-surface-400">
-                        • {matchedUnitInContext.model || 'Model'} • Cabang {matchedUnitInContext.under_cabang || '—'}
+                        • {matchedUnitInContext.model || 'Model'} • Cabang{' '}
+                        {matchedUnitInContext.under_cabang || '—'}
                       </span>
                     )}
                   </h4>
@@ -402,7 +370,6 @@ export default function AiUpdateModal({
                 </button>
               </div>
 
-              {/* AI Explanation */}
               <div className="p-3.5 rounded-xl bg-accent/5 border border-accent/20 space-y-1">
                 <span className="text-[11px] font-bold text-accent flex items-center gap-1.5">
                   <Bot className="w-3.5 h-3.5" /> Hasil Ekstraksi AI:
@@ -410,13 +377,11 @@ export default function AiUpdateModal({
                 <p className="text-xs text-surface-200">{parsedData.summaryExplanation}</p>
               </div>
 
-              {/* Diff Preview Cards */}
               <div className="space-y-3">
                 <h5 className="text-xs font-semibold uppercase tracking-wider text-surface-400">
                   Daftar Perubahan yang Akan Diterapkan ke Database:
                 </h5>
 
-                {/* 1. Process Milestone Updates */}
                 {parsedData.processUpdates && Object.keys(parsedData.processUpdates).length > 0 && (
                   <div className="card p-3.5 space-y-2 bg-surface-950/60">
                     <span className="text-xs font-bold text-surface-300 flex items-center gap-1.5">
@@ -440,7 +405,6 @@ export default function AiUpdateModal({
                   </div>
                 )}
 
-                {/* 2. Unit Specification Updates */}
                 {parsedData.unitUpdates && Object.keys(parsedData.unitUpdates).length > 0 && (
                   <div className="card p-3.5 space-y-2 bg-surface-950/60">
                     <span className="text-xs font-bold text-surface-300 flex items-center gap-1.5">
@@ -463,7 +427,8 @@ export default function AiUpdateModal({
                 {Object.keys(parsedData.processUpdates || {}).length === 0 &&
                   Object.keys(parsedData.unitUpdates || {}).length === 0 && (
                     <div className="p-3 bg-amber-400/10 border border-amber-500/20 rounded-xl text-xs text-amber-400">
-                      Tidak ada perubahan spesifik yang berhasil dipetakan dari kalimat Anda. Silakan coba perintah yang lebih jelas.
+                      Tidak ada perubahan spesifik yang berhasil dipetakan dari kalimat Anda. Silakan coba
+                      perintah yang lebih jelas.
                     </div>
                   )}
               </div>
@@ -475,7 +440,6 @@ export default function AiUpdateModal({
                 </div>
               )}
 
-              {/* Execution Actions */}
               <div className="pt-2 border-t border-surface-800 flex items-center justify-end gap-3">
                 <button
                   type="button"
@@ -508,7 +472,6 @@ export default function AiUpdateModal({
           )}
         </div>
 
-        {/* Footer info */}
         <div className="p-3 bg-surface-950 border-t border-surface-800 text-[11px] text-surface-500 flex items-center justify-between px-5">
           <span>SDLG AI Natural Language Pipeline v2.5</span>
           <button onClick={onClose} className="hover:text-surface-300">
