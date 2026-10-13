@@ -36,6 +36,10 @@ export interface UnitComplianceStatus {
   hasComm: boolean
   commStatus: string
 
+  // Data completeness
+  isModelMissing: boolean
+  isDetailsMissing: boolean
+
   // Overall readiness
   isFullyReady: boolean
   rawUnit: Unit
@@ -163,6 +167,8 @@ export function evaluateUnitCompliance(
     commStatus: hasComm ? 'DONE' : commVal || 'KOSONG',
 
     isFullyReady,
+    isModelMissing: !unit.model || unit.model.trim() === '' || unit.model === 'KOSONG' || unit.model === 'Unknown' || unit.model === '—',
+    isDetailsMissing: !unit.customer || !unit.under_cabang || !unit.year_delivery,
     rawUnit: unit,
   }
 }

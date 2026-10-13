@@ -145,3 +145,56 @@ export function resolveUnitModel(unit: Partial<Unit> | null | undefined): Resolv
 
   return { model: 'Perlu Dilengkapi', isAutoInferred: true }
 }
+
+/**
+ * Scans all units with missing or unknown models in Supabase,
+ * infers their model using pattern heuristics, and saves the resolved models permanently to the database.
+ */
+export async function batchSyncMissingModels(
+  supabaseClient: any,
+  onProgress?: (current: number, total: number) => void
+): Promise<{ totalScanned: number; updatedCount: number; unresolvableCount: number }> {
+  // 1. Fetch units with missing or empty models
+  const { data: unitsToFix, error } = await supabaseClient
+    .from('units')
+    .select('id, unit_number, vin, model, group_type, variant, serial_number')
+    .or('model.is.null,model.eq.,model.eq.KOSONG,model.eq.Unknown,model.eq.—,model.eq.NULL')
+    .limit(2000)
+
+  if (error) throw error
+  if (!unitsToFix || unitsToFix.length === 0) {
+    return { totalScanned: 0, updatedCount: 0, unresolvableCount: 0 }
+  }
+
+  let updatedCount = 0
+  let unresolvableCount = 0
+  const total = unitsToFix.length
+
+  for (let i = 0; i < total; i++) {
+    const u = unitsToFix[i]
+    const resolved = resolveUnitModel(u)
+
+    if (resolved.model && resolved.model !== 'Perlu Dilengkapi') {
+      try {
+        const { error: updateError } = await supabaseClient
+          .from('units')
+          .update({ model: resolved.model.toUpperCase() })
+          .eq('id', u.id)
+
+        if (!updateError) {
+          updatedCount++
+        }
+      } catch (err) {
+        console.warn(`Failed to update unit ${u.id}:`, err)
+      }
+    } else {
+      unresolvableCount++
+    }
+
+    if (onProgress && (i % 5 === 0 || i === total - 1)) {
+      onProgress(i + 1, total)
+    }
+  }
+
+  return { totalScanned: total, updatedCount, unresolvableCount }
+}

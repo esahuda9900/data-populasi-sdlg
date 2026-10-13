@@ -36,7 +36,7 @@ import {
   Pie,
 } from 'recharts'
 import { StatCardSkeleton, Skeleton, TableSkeleton } from '../components/Skeleton'
-import { resolveUnitModel } from '../lib/modelUtils'
+import { resolveUnitModel, batchSyncMissingModels } from '../lib/modelUtils'
 import { exportToCSV } from '../lib/exportUtils'
 import { evaluateUnitCompliance, UnitComplianceStatus } from '../lib/complianceUtils'
 import { useRealtimeSync } from '../lib/useRealtimeSync'
@@ -75,6 +75,8 @@ type AuditFilterCategory =
   | 'missing_ms'
   | 'missing_csa_2026'
   | 'missing_comm'
+  | 'missing_model'
+  | 'missing_details'
   | 'fully_ready'
 
 export default function Dashboard() {
@@ -85,6 +87,15 @@ export default function Dashboard() {
   const [auditSearch, setAuditSearch] = useState('')
   const [auditPage, setAuditPage] = useState(0)
   const AUDIT_PAGE_SIZE = 25
+
+  // Auto-Fix state
+  const [isAutoFixing, setIsAutoFixing] = useState(false)
+  const [autoFixProgress, setAutoFixProgress] = useState<{ current: number; total: number } | null>(null)
+  const [autoFixResult, setAutoFixResult] = useState<{
+    totalScanned: number
+    updatedCount: number
+    unresolvableCount: number
+  } | null>(null)
 
   // Fetch full dataset for deep audit
   const { data, isLoading, isRefetching, refetch } = useQuery({
@@ -164,6 +175,8 @@ export default function Dashboard() {
     let totalImport2026 = 0, sudahCSA2026 = 0, belumCSA2026 = 0
     let sudahComm = 0, belumComm = 0
     let fullyReadyCount = 0
+    let missingModelCount = 0
+    let missingDetailsCount = 0
 
     for (const item of list) {
       if (item.hasArrival) sudahArrival++; else belumArrival++
@@ -180,6 +193,8 @@ export default function Dashboard() {
 
       if (item.hasComm) sudahComm++; else belumComm++
       if (item.isFullyReady) fullyReadyCount++
+      if (item.isModelMissing) missingModelCount++
+      if (item.isDetailsMissing) missingDetailsCount++
     }
 
     return {
@@ -196,6 +211,8 @@ export default function Dashboard() {
       totalImport2026, sudahCSA2026, belumCSA2026,
       sudahComm, belumComm,
       fullyReadyCount,
+      missingModelCount,
+      missingDetailsCount,
     }
   }, [data])
 
@@ -222,6 +239,12 @@ export default function Dashboard() {
         break
       case 'missing_comm':
         list = list.filter((u) => !u.hasComm)
+        break
+      case 'missing_model':
+        list = list.filter((u) => u.isModelMissing)
+        break
+      case 'missing_details':
+        list = list.filter((u) => u.isDetailsMissing)
         break
       case 'fully_ready':
         list = list.filter((u) => u.isFullyReady)
@@ -319,6 +342,25 @@ export default function Dashboard() {
     .slice(0, 8)
     .map(([name, count]) => ({ name, count }))
 
+  // Run Auto-Fix All Models to Database
+  const handleAutoFixDashboard = async () => {
+    setIsAutoFixing(true)
+    setAutoFixProgress({ current: 0, total: 0 })
+    setAutoFixResult(null)
+
+    try {
+      const res = await batchSyncMissingModels(supabase, (cur, tot) => {
+        setAutoFixProgress({ current: cur, total: tot })
+      })
+      setAutoFixResult(res)
+      refetch()
+    } catch (err: any) {
+      console.error('Error auto-fixing models:', err)
+    } finally {
+      setIsAutoFixing(false)
+    }
+  }
+
   return (
     <div className="space-y-8">
       {/* Top Header */}
@@ -332,8 +374,18 @@ export default function Dashboard() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <LiveStatusBadge isLive={isLiveConnected} lastSync={lastSyncTime} />
+
+          <button
+            onClick={handleAutoFixDashboard}
+            disabled={isAutoFixing}
+            className="btn-secondary px-3 py-2 text-xs flex items-center gap-1.5 text-amber-400 hover:text-amber-300"
+            title="Otomatis inferensi dan simpan model kosong ke DB"
+          >
+            <Sparkles className={`w-3.5 h-3.5 ${isAutoFixing ? 'animate-spin' : ''}`} />
+            <span>{isAutoFixing ? 'Memperbaiki...' : '⚡ Auto-Fix Model ke DB'}</span>
+          </button>
 
           <div className="text-right hidden sm:block">
             <span className="text-[11px] text-surface-500 block">Terakhir Sync:</span>
@@ -353,6 +405,41 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+
+      {/* Auto-Fix Progress / Summary Banner */}
+      {isAutoFixing && autoFixProgress && (
+        <div className="card p-4 border-amber-500/30 bg-amber-500/10 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-3">
+            <RefreshCw className="w-4 h-4 animate-spin text-amber-400 shrink-0" />
+            <div>
+              <p className="font-bold text-amber-300">Sedang Menganalisis & Menyimpan Model Unit ke Database...</p>
+              <p className="text-surface-300 text-[11px]">
+                Memproses {autoFixProgress.current} dari {autoFixProgress.total} unit dengan model kosong
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {autoFixResult && (
+        <div className="card p-4 border-emerald-500/30 bg-emerald-500/10 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <div>
+              <p className="font-bold text-emerald-300">Hasil Pembaruan Model Otomatis ke Database:</p>
+              <p className="text-surface-200 text-[11px]">
+                Dari {autoFixResult.totalScanned} unit diperiksa: <strong>{autoFixResult.updatedCount} unit</strong> berhasil diperbarui modelnya ke database. (Sisa {autoFixResult.unresolvableCount} unit perlu dilengkapi manual).
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setAutoFixResult(null)}
+            className="text-surface-400 hover:text-surface-200 text-xs px-2 py-1"
+          >
+            Tutup
+          </button>
+        </div>
+      )}
 
       {/* Primary KPI Header Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -669,6 +756,17 @@ export default function Dashboard() {
               highlight: true,
             },
             { key: 'missing_comm', label: 'Belum COMM', count: stats.belumComm },
+            {
+              key: 'missing_model',
+              label: '⚡ Model Belum Diisi',
+              count: stats.missingModelCount,
+              highlight: stats.missingModelCount > 0,
+            },
+            {
+              key: 'missing_details',
+              label: 'Detail Kurang',
+              count: stats.missingDetailsCount,
+            },
             { key: 'fully_ready', label: '✓ Siap Operasi Penuh', count: stats.fullyReadyCount },
           ].map((tab) => {
             const isSelected = auditFilter === tab.key

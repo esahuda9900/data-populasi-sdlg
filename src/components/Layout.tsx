@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -10,6 +10,8 @@ import {
   X,
   User,
   ShieldAlert,
+  Wifi,
+  WifiOff,
 } from 'lucide-react'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
@@ -31,6 +33,18 @@ export default function Layout({
 }) {
   const navigate = useNavigate()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -172,6 +186,32 @@ export default function Layout({
           ))}
         </nav>
 
+        {/* Realtime Connectivity Status Pill */}
+        <div className="px-3 pt-2">
+          <div
+            className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-[11px] font-medium border ${
+              isOnline
+                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                : 'bg-red-500/10 border-red-500/20 text-red-400'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                {isOnline && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                )}
+                <span
+                  className={`relative inline-flex rounded-full h-2 w-2 ${
+                    isOnline ? 'bg-emerald-500' : 'bg-red-500'
+                  }`}
+                />
+              </span>
+              <span>{isOnline ? 'Realtime Sync Aktif' : 'Mode Offline Lapangan'}</span>
+            </div>
+            {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+          </div>
+        </div>
+
         {/* User Profile & Logout Bottom Section */}
         <div className="p-3 border-t border-surface-800 space-y-2">
           <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-950/60 border border-surface-800">
@@ -183,7 +223,7 @@ export default function Layout({
                 {userEmail}
               </p>
               <span className="inline-block text-[10px] text-accent font-medium">
-                ● Operator
+                ● Operator Cabang
               </span>
             </div>
           </div>
