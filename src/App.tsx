@@ -6,6 +6,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Units from './pages/Units'
 import Documents from './pages/Documents'
+import Process from './pages/Process'
 import Layout from './components/Layout'
 
 function App() {
@@ -42,6 +43,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/units" element={<Units />} />
+        <Route path="/process" element={<Process />} />
         <Route path="/documents" element={<Documents />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

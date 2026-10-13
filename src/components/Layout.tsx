@@ -1,11 +1,12 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Truck, FileText, LogOut } from 'lucide-react'
+import { LayoutDashboard, Truck, FileText, LogOut, ClipboardList } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { cn } from '../lib/utils'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/units', label: 'Unit', icon: Truck },
+  { to: '/process', label: 'Process', icon: ClipboardList },
   { to: '/documents', label: 'Dokumen', icon: FileText },
 ]
 
@@ -19,7 +20,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen flex">
-      {/* Sidebar */}
       <aside className="w-60 shrink-0 border-r border-surface-800 bg-surface-900 flex flex-col">
         <div className="p-5 border-b border-surface-800">
           <h1 className="text-lg font-semibold tracking-tight text-surface-50">
@@ -60,7 +60,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* Main content */}
       <main className="flex-1 overflow-auto">
         <div className="p-6 md:p-8 max-w-7xl mx-auto">{children}</div>
       </main>
