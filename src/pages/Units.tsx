@@ -33,6 +33,7 @@ import UnitDetailDrawer from '../components/UnitDetailDrawer'
 import { TableSkeleton } from '../components/Skeleton'
 import CreateUnitModal from '../components/CreateUnitModal'
 import BulkImportModal from '../components/BulkImportModal'
+import AiUpdateModal from '../components/AiUpdateModal'
 
 const PAGE_SIZE = 50
 
@@ -50,6 +51,7 @@ export default function Units() {
   // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false)
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false)
 
   // Batch Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -325,6 +327,15 @@ export default function Units() {
           >
             <Upload className="w-3.5 h-3.5 text-blue-400" />
             <span>Import CSV</span>
+          </button>
+
+          <button
+            onClick={() => setIsAiModalOpen(true)}
+            className="btn-secondary px-3 py-2 text-xs flex items-center gap-1.5 font-semibold text-accent border-accent/35 bg-accent/10 hover:bg-accent/20"
+            title="Update status/data unit via kalimat instruksi bahasa alami"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-accent animate-pulse" />
+            <span>✨ AI Update Data</span>
           </button>
 
           <button
@@ -886,6 +897,15 @@ export default function Units() {
         }}
       />
       <BulkImportModal isOpen={isBulkImportOpen} onClose={() => setIsBulkImportOpen(false)} />
+      <AiUpdateModal
+        isOpen={isAiModalOpen}
+        onClose={() => setIsAiModalOpen(false)}
+        contextUnits={units}
+        onUnitUpdated={(uNum) => {
+          const found = units.find((u) => u.unit_number === uNum)
+          if (found) setSelectedUnit(found)
+        }}
+      />
     </div>
   )
 }

@@ -42,6 +42,7 @@ import { evaluateUnitCompliance, UnitComplianceStatus } from '../lib/complianceU
 import { useRealtimeSync } from '../lib/useRealtimeSync'
 import { LiveStatusBadge } from '../components/LiveNotification'
 import UnitDetailDrawer from '../components/UnitDetailDrawer'
+import AiUpdateModal from '../components/AiUpdateModal'
 
 const MODEL_COLORS = [
   '#22c55e',
@@ -96,6 +97,9 @@ export default function Dashboard() {
     updatedCount: number
     unresolvableCount: number
   } | null>(null)
+
+  // AI Update Modal state
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false)
 
   // Fetch full dataset for deep audit
   const { data, isLoading, isRefetching, refetch } = useQuery({
@@ -376,6 +380,15 @@ export default function Dashboard() {
 
         <div className="flex flex-wrap items-center gap-3">
           <LiveStatusBadge isLive={isLiveConnected} lastSync={lastSyncTime} />
+
+          <button
+            onClick={() => setIsAiModalOpen(true)}
+            className="btn-secondary px-3 py-2 text-xs flex items-center gap-1.5 font-semibold text-accent border-accent/40 bg-accent/10 hover:bg-accent/20"
+            title="Update data / status unit via AI natural language parser"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-accent animate-pulse" />
+            <span>✨ AI Update Data</span>
+          </button>
 
           <button
             onClick={handleAutoFixDashboard}
@@ -1142,6 +1155,17 @@ export default function Dashboard() {
           onClose={() => setSelectedUnit(null)}
         />
       )}
+
+      {/* AI Update Modal */}
+      <AiUpdateModal
+        isOpen={isAiModalOpen}
+        onClose={() => setIsAiModalOpen(false)}
+        contextUnits={data?.complianceList ? data.complianceList.map((c) => c.rawUnit) : []}
+        onUnitUpdated={(uNum) => {
+          const found = data?.complianceList?.find((c) => c.rawUnit.unit_number === uNum)
+          if (found) setSelectedUnit(found.rawUnit)
+        }}
+      />
     </div>
   )
 }

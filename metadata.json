@@ -1,4 +1,10 @@
 {
   "name": "SDLG Population Monitor",
-  "description": "SDLG Population Monitor application for tracking and managing population data."
+  "description": "SDLG Population Monitor application for tracking and managing population data.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

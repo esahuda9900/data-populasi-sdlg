@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard,
   Truck,
@@ -12,10 +13,13 @@ import {
   ShieldAlert,
   Wifi,
   WifiOff,
+  Sparkles,
+  Bot,
 } from 'lucide-react'
 import { Session } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
+import { supabase, Unit } from '../lib/supabase'
 import { cn } from '../lib/utils'
+import AiUpdateModal from './AiUpdateModal'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -45,6 +49,18 @@ export default function Layout({
       window.removeEventListener('offline', handleOffline)
     }
   }, [])
+
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false)
+
+  // Context units for AI natural language matching
+  const { data: contextUnits = [] } = useQuery<Unit[]>({
+    queryKey: ['layout_ai_context_units'],
+    queryFn: async () => {
+      const { data } = await supabase.from('units').select('*').limit(300)
+      return (data as Unit[]) || []
+    },
+    staleTime: 60 * 1000,
+  })
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -125,6 +141,19 @@ export default function Layout({
                   </NavLink>
                 ))}
               </nav>
+
+              <div className="pt-2">
+                <button
+                  onClick={() => {
+                    setIsAiModalOpen(true)
+                    setMobileMenuOpen(false)
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-accent/25 via-accent/15 to-transparent border border-accent/40 text-accent hover:bg-accent/30 transition-all shadow-sm"
+                >
+                  <Sparkles className="w-4 h-4 text-accent animate-pulse" />
+                  <span>✨ AI Smart Updater</span>
+                </button>
+              </div>
             </div>
 
             {/* User & Logout */}
@@ -184,6 +213,20 @@ export default function Layout({
               <span>{item.label}</span>
             </NavLink>
           ))}
+
+          {/* AI Smart Updater Special Nav Button */}
+          <div className="pt-3">
+            <button
+              onClick={() => setIsAiModalOpen(true)}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-accent/20 via-accent/10 to-transparent border border-accent/35 text-accent hover:border-accent hover:bg-accent/25 transition-all shadow-sm group"
+            >
+              <Sparkles className="w-4 h-4 text-accent shrink-0 group-hover:rotate-12 transition-transform" />
+              <div className="text-left">
+                <span className="block leading-tight">AI Smart Updater</span>
+                <span className="text-[10px] text-surface-400 font-normal">Update via Bahasa Alami</span>
+              </div>
+            </button>
+          </div>
         </nav>
 
         {/* Realtime Connectivity Status Pill */}
@@ -239,9 +282,26 @@ export default function Layout({
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-x-hidden overflow-y-auto">
+      <main className="flex-1 overflow-x-hidden overflow-y-auto relative">
         <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto">{children}</div>
+
+        {/* Global Floating Quick Action Button for AI Updater */}
+        <button
+          onClick={() => setIsAiModalOpen(true)}
+          className="fixed bottom-6 right-6 z-30 flex items-center gap-2 px-4 py-2.5 rounded-full bg-accent text-surface-950 font-bold text-xs shadow-xl shadow-accent/25 hover:shadow-accent/40 hover:scale-105 active:scale-95 transition-all"
+          title="Buka AI Smart Updater"
+        >
+          <Sparkles className="w-4 h-4" />
+          <span>AI Update</span>
+        </button>
       </main>
+
+      {/* AI Update Modal mounted globally */}
+      <AiUpdateModal
+        isOpen={isAiModalOpen}
+        onClose={() => setIsAiModalOpen(false)}
+        contextUnits={contextUnits}
+      />
     </div>
   )
 }
