@@ -1,8 +1,11 @@
 /**
- * Client-side rule-heuristic parser for AI Smart Unit Updater.
- * Used when Express /api/ai-parse-update is unavailable (e.g. GitHub Pages static host).
- * Mirrors the fallback logic in server.ts so production still works without a backend.
+ * AI Smart Unit Updater — multi-layer parse:
+ * 1) Supabase Edge Function (Gemini + secrets) — works on GitHub Pages
+ * 2) Local Express /api/ai-parse-update — npm run dev
+ * 3) Client rule-heuristic — offline / no key
  */
+
+import { supabase } from './supabase'
 
 export type ContextUnit = {
   id?: string
@@ -25,6 +28,19 @@ export type ParsedResult = {
   unitUpdates: Record<string, any>
   processUpdates: Record<string, string>
   engine?: string
+}
+
+function slimContext(units: ContextUnit[]) {
+  return units.map((u) => ({
+    id: u.id,
+    unit_number: u.unit_number,
+    vin: u.vin,
+    model: u.model,
+    under_cabang: u.under_cabang,
+    customer: u.customer,
+    location: u.location,
+    status: u.status,
+  }))
 }
 
 export function parseWithRuleHeuristics(
@@ -76,7 +92,6 @@ export function parseWithRuleHeuristics(
   const unitUpdates: Record<string, any> = {}
   const detectedActions: string[] = []
 
-  // Commissioning (COMM)
   if (
     lower.includes('komisi') ||
     lower.includes('komisioning') ||
@@ -100,7 +115,6 @@ export function parseWithRuleHeuristics(
     }
   }
 
-  // Arrival
   if (
     lower.includes('arrival') ||
     lower.includes('tiba') ||
@@ -118,7 +132,6 @@ export function parseWithRuleHeuristics(
     }
   }
 
-  // PDI
   if (lower.includes('pdi') || lower.includes('inspeksi') || lower.includes('pre-delivery')) {
     if (
       lower.includes('selesai') ||
@@ -132,7 +145,6 @@ export function parseWithRuleHeuristics(
     }
   }
 
-  // Maintenance Stock MS 1/2/3
   if (lower.includes('ms 1') || lower.includes('ms1') || lower.includes('maintenance stock 1')) {
     processUpdates.ms_check_1 = 'DONE'
     detectedActions.push('Tandai Maintenance Stock 1 Selesai (DONE)')
@@ -146,7 +158,6 @@ export function parseWithRuleHeuristics(
     detectedActions.push('Tandai Maintenance Stock 3 Selesai (DONE)')
   }
 
-  // Status operasional
   if (lower.includes('status')) {
     if (lower.includes('aktif') || lower.includes('operasi') || lower.includes('jalan')) {
       unitUpdates.status = 'aktif'
@@ -168,14 +179,12 @@ export function parseWithRuleHeuristics(
     }
   }
 
-  // Cabang
   const cabangMatch = prompt.match(/(?:cabang|branch)\s+([a-zA-Z]+)/i)
   if (cabangMatch) {
     unitUpdates.under_cabang = cabangMatch[1].toUpperCase()
     detectedActions.push(`Pindahkan Cabang ke ${cabangMatch[1].toUpperCase()}`)
   }
 
-  // Lokasi
   const lokasiMatch = prompt.match(
     /(?:lokasi|di yard|di site|ke yard|ke site)\s+([a-zA-Z0-9\s\-]+?)(?:,|$|\.|\bdengan\b|\bstatus\b)/i
   )
@@ -184,7 +193,6 @@ export function parseWithRuleHeuristics(
     detectedActions.push(`Perbarui Lokasi ke: ${lokasiMatch[1].trim()}`)
   }
 
-  // Customer
   const custMatch = prompt.match(
     /(?:customer|pelanggan|pembeli)\s+([a-zA-Z0-9\s\.\-]+?)(?:,|$|\.|\btanggal\b|\bdan\b)/i
   )
@@ -193,7 +201,6 @@ export function parseWithRuleHeuristics(
     detectedActions.push(`Perbarui Customer: ${custMatch[1].trim()}`)
   }
 
-  // Tahun delivery
   const yearMatch = prompt.match(/(?:tahun|delivery|bl)\s*[:=]?\s*(202[0-9])/i)
   if (yearMatch) {
     unitUpdates.year_delivery = parseInt(yearMatch[1], 10)
@@ -217,31 +224,36 @@ export function parseWithRuleHeuristics(
 }
 
 /**
- * Try backend API first; on failure (404/network on static host) use client parser.
+ * Priority: Edge Function (Gemini) → local Express → client heuristic
  */
 export async function parseAiUpdate(
   prompt: string,
   contextUnits: ContextUnit[]
 ): Promise<ParsedResult> {
+  const payload = {
+    prompt,
+    contextUnits: slimContext(contextUnits),
+  }
+
+  // 1) Supabase Edge Function (production + requires login JWT)
+  try {
+    const { data, error } = await supabase.functions.invoke('ai-parse-update', {
+      body: payload,
+    })
+    if (!error && data && (data.targetIdentifier || data.unitUpdates || data.processUpdates)) {
+      return data as ParsedResult
+    }
+  } catch {
+    // fall through
+  }
+
+  // 2) Local Express server (npm run dev)
   try {
     const res = await fetch('/api/ai-parse-update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt,
-        contextUnits: contextUnits.map((u) => ({
-          id: u.id,
-          unit_number: u.unit_number,
-          vin: u.vin,
-          model: u.model,
-          under_cabang: u.under_cabang,
-          customer: u.customer,
-          location: u.location,
-          status: u.status,
-        })),
-      }),
+      body: JSON.stringify(payload),
     })
-
     if (res.ok) {
       const data = await res.json()
       if (data && (data.targetIdentifier || data.unitUpdates || data.processUpdates)) {
@@ -249,8 +261,9 @@ export async function parseAiUpdate(
       }
     }
   } catch {
-    // Static host / no backend — fall through
+    // fall through
   }
 
+  // 3) Client-side rules
   return parseWithRuleHeuristics(prompt, contextUnits)
 }
