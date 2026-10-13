@@ -98,17 +98,17 @@ function parseWithRuleHeuristics(prompt: string, contextUnits: any[] = []) {
     }
   }
 
-  // Check Maintenance Stock (MS 1, 2, 3)
+  // Check Maintenance Stock (MS 1, 2, 3) — MUST match unit_process columns: ms_check_1/2/3
   if (lower.includes('ms 1') || lower.includes('ms1') || lower.includes('maintenance stock 1')) {
-    processUpdates.ms1_check = 'DONE'
+    processUpdates.ms_check_1 = 'DONE'
     detectedActions.push('Tandai Maintenance Stock 1 Selesai (DONE)')
   }
   if (lower.includes('ms 2') || lower.includes('ms2') || lower.includes('maintenance stock 2')) {
-    processUpdates.ms2_check = 'DONE'
+    processUpdates.ms_check_2 = 'DONE'
     detectedActions.push('Tandai Maintenance Stock 2 Selesai (DONE)')
   }
   if (lower.includes('ms 3') || lower.includes('ms3') || lower.includes('maintenance stock 3')) {
-    processUpdates.ms3_check = 'DONE'
+    processUpdates.ms_check_3 = 'DONE'
     detectedActions.push('Tandai Maintenance Stock 3 Selesai (DONE)')
   }
 
@@ -215,16 +215,16 @@ Daftar field target:
    - customer: string (nama PT atau pembeli)
    - location: string (lokasi yard atau site)
    - year_delivery: number (tahun B/L atau pengiriman, misal 2024, 2025, 2026)
-   - status: "aktif" | "idle" | "maintenance" | "ready"
+   - status: "aktif" | "idle" | "maintenance" | "ready" | "sold" | "scrapped"
    - serial_number: string
    - device_number: string (nomor GPS/telematics)
 2. Tabel 'unit_process':
    - arrival_check: "DONE" | "KOSONG"
    - pdi_check: "DONE" | "KOSONG"
    - comm_check: "DONE" | "KOSONG" (Commissioning)
-   - ms1_check: "DONE" | "KOSONG"
-   - ms2_check: "DONE" | "KOSONG"
-   - ms3_check: "DONE" | "KOSONG"
+   - ms_check_1: "DONE" | "KOSONG"
+   - ms_check_2: "DONE" | "KOSONG"
+   - ms_check_3: "DONE" | "KOSONG"
 
 Format JSON yang HARUS dikembalikan:
 {
@@ -239,7 +239,7 @@ Format JSON yang HARUS dikembalikan:
     "customer"?: string,
     "location"?: string,
     "year_delivery"?: number,
-    "status"?: "aktif" | "idle" | "maintenance" | "ready",
+    "status"?: "aktif" | "idle" | "maintenance" | "ready" | "sold" | "scrapped",
     "serial_number"?: string,
     "device_number"?: string
   },
@@ -247,9 +247,9 @@ Format JSON yang HARUS dikembalikan:
     "arrival_check"?: "DONE" | "KOSONG",
     "pdi_check"?: "DONE" | "KOSONG",
     "comm_check"?: "DONE" | "KOSONG",
-    "ms1_check"?: "DONE" | "KOSONG",
-    "ms2_check"?: "DONE" | "KOSONG",
-    "ms3_check"?: "DONE" | "KOSONG"
+    "ms_check_1"?: "DONE" | "KOSONG",
+    "ms_check_2"?: "DONE" | "KOSONG",
+    "ms_check_3"?: "DONE" | "KOSONG"
   }
 }`
 
