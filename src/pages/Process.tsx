@@ -1,27 +1,57 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
-import { AlertCircle, CheckCircle2, Search, ClipboardList } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Search, ClipboardList, XCircle } from 'lucide-react'
+
+function StatusBadge({ value }: { value: string | null }) {
+  if (!value || value === '' || value === 'KOSONG') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-red-400/15 text-red-400">
+        <XCircle className="w-3.5 h-3.5" /> KOSONG
+      </span>
+    )
+  }
+  if (value === 'DONE') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-accent/15 text-accent">
+        <CheckCircle2 className="w-3.5 h-3.5" /> DONE
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-400/15 text-amber-400">
+      <AlertCircle className="w-3.5 h-3.5" /> {value}
+    </span>
+  )
+}
 
 export default function Process() {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'all' | 'missing_pdi' | 'missing_comm' | 'missing_arrival'>('all')
 
-  const { data: units = [], isLoading } = useQuery({
-    queryKey: ['units_process'],
+  const { data: rows = [], isLoading } = useQuery({
+    queryKey: ['units_with_process'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: units, error: e1 } = await supabase
         .from('units')
         .select('id, vin, unit_number, model, customer, under_cabang, location, marketing_status, status')
         .order('unit_number')
-      if (error) throw error
-      return data || []
+      if (e1) throw e1
+
+      const { data: processes, error: e2 } = await supabase
+        .from('unit_process')
+        .select('vin, arrival_check, pdi_check, comm_check, ms_check_1, data_validity_check')
+      if (e2) throw e2
+
+      const procMap = new Map((processes || []).map((p: any) => [p.vin, p]))
+      return (units || []).map((u: any) => ({
+        ...u,
+        process: procMap.get(u.vin) || null,
+      }))
     },
   })
 
-  // For now process data comes from units; later we join unit_process
-  // Placeholder: we show units and mark that process tracking will be populated as data is imported
-  const filtered = units.filter((u: any) => {
+  const filtered = rows.filter((u: any) => {
     const q = search.toLowerCase()
     const matchSearch =
       !q ||
@@ -29,8 +59,25 @@ export default function Process() {
       (u.unit_number || '').toLowerCase().includes(q) ||
       (u.model || '').toLowerCase().includes(q) ||
       (u.customer || '').toLowerCase().includes(q)
-    return matchSearch
+
+    if (!matchSearch) return false
+
+    const p = u.process
+    if (filter === 'missing_pdi') {
+      return !p || !p.pdi_check || p.pdi_check === 'KOSONG'
+    }
+    if (filter === 'missing_comm') {
+      return !p || !p.comm_check || p.comm_check === 'KOSONG'
+    }
+    if (filter === 'missing_arrival') {
+      return !p || !p.arrival_check || p.arrival_check === 'KOSONG'
+    }
+    return true
   })
+
+  const countMissingPdi = rows.filter((u: any) => !u.process || !u.process.pdi_check || u.process.pdi_check === 'KOSONG').length
+  const countMissingComm = rows.filter((u: any) => !u.process || !u.process.comm_check || u.process.comm_check === 'KOSONG').length
+  const countMissingArrival = rows.filter((u: any) => !u.process || !u.process.arrival_check || u.process.arrival_check === 'KOSONG').length
 
   if (isLoading) {
     return (
@@ -46,7 +93,7 @@ export default function Process() {
         <div>
           <h2 className="text-xl font-semibold text-surface-50">Process Tracking</h2>
           <p className="text-sm text-surface-400 mt-1">
-            Tracking status ARRIVAL / MS / PDI / COMM per unit
+            Status ARRIVAL / PDI / COMM per unit
           </p>
         </div>
         <div className="relative">
@@ -63,10 +110,10 @@ export default function Process() {
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { key: 'all', label: 'Semua', count: filtered.length },
-          { key: 'missing_pdi', label: 'PDI Belum', count: '—' },
-          { key: 'missing_comm', label: 'COMM Belum', count: '—' },
-          { key: 'missing_arrival', label: 'Arrival Belum', count: '—' },
+          { key: 'all', label: 'Semua', count: rows.length },
+          { key: 'missing_pdi', label: 'PDI Belum', count: countMissingPdi },
+          { key: 'missing_comm', label: 'COMM Belum', count: countMissingComm },
+          { key: 'missing_arrival', label: 'Arrival Belum', count: countMissingArrival },
         ].map((f) => (
           <button
             key={f.key}
@@ -81,13 +128,10 @@ export default function Process() {
         ))}
       </div>
 
-      {units.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="card text-center py-12">
           <ClipboardList className="w-10 h-10 text-surface-600 mx-auto mb-3" />
-          <p className="text-surface-300 font-medium">Data process sedang di-import</p>
-          <p className="text-sm text-surface-500 mt-1">
-            Setelah master unit + process check masuk, halaman ini akan menampilkan unit yang masih KOSONG.
-          </p>
+          <p className="text-surface-300 font-medium">Belum ada data unit</p>
         </div>
       ) : (
         <div className="card overflow-hidden p-0">
@@ -115,19 +159,13 @@ export default function Process() {
                     <td className="px-4 py-3 text-surface-300 max-w-[160px] truncate">{unit.customer || '—'}</td>
                     <td className="px-4 py-3 text-surface-300">{unit.under_cabang || '—'}</td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1 text-xs text-surface-500">
-                        <AlertCircle className="w-3.5 h-3.5" /> Pending data
-                      </span>
+                      <StatusBadge value={unit.process?.arrival_check} />
                     </td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1 text-xs text-surface-500">
-                        <AlertCircle className="w-3.5 h-3.5" /> Pending data
-                      </span>
+                      <StatusBadge value={unit.process?.pdi_check} />
                     </td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1 text-xs text-surface-500">
-                        <AlertCircle className="w-3.5 h-3.5" /> Pending data
-                      </span>
+                      <StatusBadge value={unit.process?.comm_check} />
                     </td>
                   </tr>
                 ))}
@@ -136,15 +174,6 @@ export default function Process() {
           </div>
         </div>
       )}
-
-      <div className="card border-blue-500/20 bg-blue-500/5 text-sm text-surface-300">
-        <p className="font-medium text-blue-400 mb-1">Catatan Expert</p>
-        <p>
-          Status process (ARRIVAL / MS / PDI / COMM) akan otomatis terisi seiring import data master.
-          Setelah data process masuk, filter "PDI Belum", "COMM Belum", dll akan aktif dan menampilkan
-          unit yang masih KOSONG / belum DONE.
-        </p>
-      </div>
     </div>
   )
 }
