@@ -1,13 +1,35 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
-import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
-import Units from './pages/Units'
-import Documents from './pages/Documents'
-import Process from './pages/Process'
 import Layout from './components/Layout'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { NetworkStatus } from './components/NetworkStatus'
+import { Skeleton } from './components/Skeleton'
+
+// Route-level Code Splitting (Lazy Loading)
+const Login = lazy(() => import('./pages/Login'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Units = lazy(() => import('./pages/Units'))
+const Documents = lazy(() => import('./pages/Documents'))
+const Process = lazy(() => import('./pages/Process'))
+
+function RouteFallback() {
+  return (
+    <div className="p-6 space-y-6 animate-pulse">
+      <div className="flex justify-between items-center">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-8 w-28" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-28 w-full" />
+        ))}
+      </div>
+      <Skeleton className="h-80 w-full" />
+    </div>
+  )
+}
 
 function App() {
   const [session, setSession] = useState<Session | null>(null)
@@ -19,7 +41,9 @@ function App() {
       setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
     })
 
@@ -34,20 +58,33 @@ function App() {
     )
   }
 
-  if (!session) {
-    return <Login />
-  }
-
   return (
-    <Layout>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/units" element={<Units />} />
-        <Route path="/process" element={<Process />} />
-        <Route path="/documents" element={<Documents />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Layout>
+    <ErrorBoundary>
+      <NetworkStatus />
+      {!session ? (
+        <Suspense
+          fallback={
+            <div className="min-h-screen flex items-center justify-center bg-surface-950">
+              <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+            </div>
+          }
+        >
+          <Login />
+        </Suspense>
+      ) : (
+        <Layout session={session}>
+          <Suspense fallback={<RouteFallback />}>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/units" element={<Units />} />
+              <Route path="/process" element={<Process />} />
+              <Route path="/documents" element={<Documents />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </Layout>
+      )}
+    </ErrorBoundary>
   )
 }
 

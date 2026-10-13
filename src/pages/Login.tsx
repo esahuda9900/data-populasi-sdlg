@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { Truck, ShieldCheck, Eye, EyeOff, Lock, Mail, ArrowRight } from 'lucide-react'
 
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [mode, setMode] = useState<'login' | 'signup'>('login')
@@ -20,75 +22,143 @@ export default function Login() {
       } else {
         const { error } = await supabase.auth.signUp({ email, password })
         if (error) throw error
-        setError('Cek email untuk konfirmasi (jika diaktifkan).')
+        setError('Pendaftaran berhasil. Silakan cek email Anda untuk verifikasi.')
       }
     } catch (err: any) {
-      setError(err.message || 'Terjadi kesalahan')
+      setError(err.message || 'Terjadi kesalahan autentikasi.')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface-950 px-4">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-semibold text-surface-50 tracking-tight">SDLG Monitor</h1>
-          <p className="text-sm text-surface-400 mt-1">Population & Document Tracking</p>
+    <div className="min-h-screen flex items-center justify-center bg-surface-950 px-4 py-12 relative overflow-hidden">
+      {/* Background radial highlight */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-accent/5 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="w-full max-w-md relative z-10 space-y-6">
+        {/* Brand Header */}
+        <div className="text-center space-y-2">
+          <div className="inline-flex p-3 rounded-2xl bg-accent/10 border border-accent/20 text-accent mb-2 shadow-inner">
+            <Truck className="w-8 h-8" />
+          </div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-surface-50">
+            SDLG Monitor
+          </h1>
+          <p className="text-sm text-surface-400">
+            Portal Pemantauan Populasi Unit, Inspeksi & Berkas Legalitas
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="card space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-surface-400 mb-1.5">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="input"
-              placeholder="nama@perusahaan.com"
-              required
-            />
+        {/* Auth Card */}
+        <div className="card p-6 sm:p-8 space-y-5 shadow-2xl border-surface-800/80 bg-surface-900/95 backdrop-blur">
+          <div className="flex items-center justify-between pb-3 border-b border-surface-800">
+            <h2 className="text-base font-semibold text-surface-100">
+              {mode === 'login' ? 'Masuk ke Sistem' : 'Daftar Akun Baru'}
+            </h2>
+            <span className="text-xs text-accent flex items-center gap-1 font-medium">
+              <ShieldCheck className="w-3.5 h-3.5" /> Portal Internal
+            </span>
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-surface-400 mb-1.5">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="input"
-              placeholder="••••••••"
-              required
-              minLength={6}
-            />
-          </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-surface-400 mb-1.5">
+                Alamat Email
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="input pl-9"
+                  placeholder="operator@perusahaan.com"
+                  required
+                />
+              </div>
+            </div>
 
-          {error && (
-            <p className="text-sm text-red-400 bg-red-400/10 rounded-lg px-3 py-2">{error}</p>
-          )}
-
-          <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? 'Memproses...' : mode === 'login' ? 'Masuk' : 'Daftar'}
-          </button>
-
-          <p className="text-center text-xs text-surface-500">
-            {mode === 'login' ? (
-              <>
-                Belum punya akun?{' '}
-                <button type="button" onClick={() => setMode('signup')} className="text-accent hover:underline">
-                  Daftar
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-surface-400">
+                  Password
+                </label>
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="input pl-9 pr-10"
+                  placeholder="••••••••"
+                  required
+                  minLength={6}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 hover:text-surface-200 transition-colors"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
-              </>
-            ) : (
-              <>
-                Sudah punya akun?{' '}
-                <button type="button" onClick={() => setMode('login')} className="text-accent hover:underline">
-                  Masuk
-                </button>
-              </>
+              </div>
+            </div>
+
+            {error && (
+              <div className="p-3 rounded-lg bg-red-400/10 border border-red-500/20 text-red-400 text-xs leading-relaxed">
+                {error}
+              </div>
             )}
-          </p>
-        </form>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="btn-primary w-full py-2.5 font-semibold shadow-lg shadow-accent/15 flex items-center justify-center gap-2"
+            >
+              <span>{loading ? 'Memproses...' : mode === 'login' ? 'Masuk ke Dashboard' : 'Buat Akun'}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </form>
+
+          <div className="pt-3 border-t border-surface-800 text-center text-xs text-surface-400">
+            {mode === 'login' ? (
+              <p>
+                Belum terdaftar sebagai operator?{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('signup')
+                    setError(null)
+                  }}
+                  className="text-accent hover:underline font-semibold"
+                >
+                  Registrasi di sini
+                </button>
+              </p>
+            ) : (
+              <p>
+                Sudah memiliki akses terdaftar?{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('login')
+                    setError(null)
+                  }}
+                  className="text-accent hover:underline font-semibold"
+                >
+                  Masuk di sini
+                </button>
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Security & System Note */}
+        <p className="text-center text-[11px] text-surface-500">
+          SDLG Heavy Machinery Population Monitor • Enkripsi Sesi Aktif
+        </p>
       </div>
     </div>
   )

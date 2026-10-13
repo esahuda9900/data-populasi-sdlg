@@ -26,6 +26,17 @@ export type Unit = {
   updated_at: string
 }
 
+export type UnitProcess = {
+  id: string
+  vin: string | null
+  unit_number?: string | null
+  arrival_check: string | null
+  pdi_check: string | null
+  comm_check: string | null
+  created_at?: string
+  updated_at?: string
+}
+
 export type DocumentType = {
   id: string
   code: string
@@ -44,6 +55,10 @@ export type UnitDocument = {
   file_name: string | null
   uploaded_at: string | null
   notes: string | null
-  document_types?: DocumentType
-  units?: Unit
+  document_types?: DocumentType | null
+  units?: Unit | null
+}
+
+export type UnitWithProcess = Unit & {
+  process?: UnitProcess | null
 }
