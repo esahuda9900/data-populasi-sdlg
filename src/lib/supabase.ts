@@ -28,11 +28,16 @@ export type Unit = {
 
 export type UnitProcess = {
   id: string
+  unit_id?: string | null
   vin: string | null
   unit_number?: string | null
   arrival_check: string | null
+  ms_check_1?: string | null
+  ms_check_2?: string | null
+  ms_check_3?: string | null
   pdi_check: string | null
   comm_check: string | null
+  pdi_date?: string | null
   created_at?: string
   updated_at?: string
 }
@@ -57,6 +62,87 @@ export type UnitDocument = {
   notes: string | null
   document_types?: DocumentType | null
   units?: Unit | null
+}
+
+export type UnitSales = {
+  id: string
+  unit_id: string | null
+  vin: string | null
+  invoice_sales: string | null
+  salesman: string | null
+  branch_sales: string | null
+  ldp: string | null
+  sales_month: string | null
+  filter_interval: string | null
+  oil_interval: string | null
+  service_interval: string | null
+  customer_phone: string | null
+  created_at?: string
+}
+
+export type UnitDelivery = {
+  id: string
+  unit_id: string | null
+  vin: string | null
+  brand: string | null
+  tipe_unit: string | null
+  customer_cabang: string | null
+  pick_up_point: string | null
+  delivery_point: string | null
+  berangkat_date: string | null
+  sampai_date: string | null
+  forwarder: string | null
+  harga: number | null
+  cabang: string | null
+  created_at?: string
+}
+
+export type WorkOrder = {
+  id: string
+  unit_id: string | null
+  vin: string | null
+  case_number: string | null
+  case_group: string | null
+  type: string | null
+  status: string | null
+  description: string | null
+  device_name: string | null
+  person_in_charge: string | null
+  start_date: string | null
+  estimated_hours: number | null
+  created_at?: string
+}
+
+export type CrmRecord = {
+  id: string
+  unit_id: string | null
+  vin: string | null
+  dealer: string | null
+  product_type: string | null
+  product_model: string | null
+  indent_no: string | null
+  end_customer_name: string | null
+  area: string | null
+  district: string | null
+  approval_status: string | null
+  file_status: string | null
+  arrival_date: string | null
+  region: string | null
+  created_at?: string
+}
+
+export type AuditLog = {
+  id: string
+  table_name: string
+  record_id: string | null
+  unit_id: string | null
+  field_name: string | null
+  old_value: string | null
+  new_value: string | null
+  action: 'INSERT' | 'UPDATE' | 'DELETE'
+  source: 'manual' | 'ai' | 'import' | 'system'
+  changed_by: string | null
+  created_at: string
 }
 
 export type UnitWithProcess = Unit & {
