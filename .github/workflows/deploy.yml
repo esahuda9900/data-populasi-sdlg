@@ -19,15 +19,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npm run build
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
         env:
           VITE_SUPABASE_URL: https://xluokufxwxurjykfrjav.supabase.co
           VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsdW9rdWZ4d3h1cmp5a2ZyamF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4NzY5NDYsImV4cCI6MjEwNzQ1Mjk0Nn0.TtOVcTu2GubH4UNmCNr6uczTqGPmlFqEMm6B5PxNc88
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
