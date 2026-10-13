@@ -1,58 +1,94 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
-import { FileText, FileWarning } from 'lucide-react'
+import { FileText, FileWarning, ChevronLeft, ChevronRight, Search } from 'lucide-react'
+
+const PAGE_SIZE = 50
 
 export default function Documents() {
-  const { data: docs = [], isLoading } = useQuery({
-    queryKey: ['unit_documents_full'],
+  const [page, setPage] = useState(0)
+  const [search, setSearch] = useState('')
+
+  const { data: totalMissing = 0 } = useQuery({
+    queryKey: ['docs_missing_count'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { count } = await supabase
+        .from('unit_documents')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['missing', 'pending'])
+      return count ?? 0
+    },
+  })
+
+  const { data: docs = [], isLoading } = useQuery({
+    queryKey: ['docs_page', page, search],
+    queryFn: async () => {
+      let q = supabase
         .from('unit_documents')
         .select(`
           *,
           document_types (name, code, is_required),
-          units (unit_number, model)
+          units (unit_number, model, vin, customer)
         `)
-        .order('status')
+        .in('status', ['missing', 'pending'])
+        .order('created_at', { ascending: false })
+        .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+
+      const { data, error } = await q
       if (error) throw error
-      return data
+
+      let result = data || []
+      if (search.trim()) {
+        const s = search.toLowerCase()
+        result = result.filter(
+          (d: any) =>
+            (d.units?.unit_number || '').toLowerCase().includes(s) ||
+            (d.units?.model || '').toLowerCase().includes(s) ||
+            (d.units?.vin || '').toLowerCase().includes(s) ||
+            (d.document_types?.name || '').toLowerCase().includes(s)
+        )
+      }
+      return result
     },
   })
 
-  const missing = docs.filter((d: any) => d.status === 'missing' || d.status === 'pending')
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
-  }
+  const totalPages = Math.max(1, Math.ceil(totalMissing / PAGE_SIZE))
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-surface-50">Tracking Dokumen</h2>
-        <p className="text-sm text-surface-400 mt-1">
-          Fokus: dokumen yang belum di-upload
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-semibold text-surface-50">Tracking Dokumen</h2>
+          <p className="text-sm text-surface-400 mt-1">Fokus: dokumen yang belum di-upload</p>
+        </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
+          <input
+            type="text"
+            placeholder="Filter di halaman ini..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="input pl-9 w-full sm:w-64"
+          />
+        </div>
       </div>
 
-      {docs.length === 0 ? (
+      <div className="flex items-center gap-2 text-sm text-amber-400">
+        <FileWarning className="w-4 h-4" />
+        <span>{totalMissing.toLocaleString('id-ID')} dokumen belum lengkap</span>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center h-64">
+          <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : docs.length === 0 ? (
         <div className="card text-center py-12">
           <FileText className="w-10 h-10 text-surface-600 mx-auto mb-3" />
-          <p className="text-surface-300 font-medium">Belum ada data dokumen</p>
-          <p className="text-sm text-surface-500 mt-1">
-            Setelah unit masuk, sistem akan generate status dokumen otomatis.
-          </p>
+          <p className="text-surface-300 font-medium">Tidak ada dokumen missing</p>
         </div>
       ) : (
         <>
-          <div className="flex items-center gap-2 text-sm text-amber-400">
-            <FileWarning className="w-4 h-4" />
-            <span>{missing.length} dokumen belum lengkap</span>
-          </div>
-
           <div className="card overflow-hidden p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -63,7 +99,6 @@ export default function Documents() {
                     <th className="px-5 py-3 font-medium">Jenis Dokumen</th>
                     <th className="px-5 py-3 font-medium">Status</th>
                     <th className="px-5 py-3 font-medium">Wajib?</th>
-                    <th className="px-5 py-3 font-medium">Catatan</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -75,13 +110,7 @@ export default function Documents() {
                       <td className="px-5 py-3 text-surface-300">{doc.units?.model || '—'}</td>
                       <td className="px-5 py-3 text-surface-300">{doc.document_types?.name || '—'}</td>
                       <td className="px-5 py-3">
-                        <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
-                          doc.status === 'uploaded' ? 'bg-accent/15 text-accent' :
-                          doc.status === 'missing' ? 'bg-red-400/15 text-red-400' :
-                          doc.status === 'pending' ? 'bg-amber-400/15 text-amber-400' :
-                          doc.status === 'expired' ? 'bg-orange-400/15 text-orange-400' :
-                          'bg-surface-700 text-surface-400'
-                        }`}>
+                        <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-red-400/15 text-red-400">
                           {doc.status}
                         </span>
                       </td>
@@ -92,11 +121,30 @@ export default function Documents() {
                           <span className="text-surface-500">Tidak</span>
                         )}
                       </td>
-                      <td className="px-5 py-3 text-surface-400">{doc.notes || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-surface-400">Halaman {page + 1} / {totalPages}</p>
+            <div className="flex gap-2">
+              <button
+                disabled={page === 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                className="btn-secondary flex items-center gap-1 disabled:opacity-40"
+              >
+                <ChevronLeft className="w-4 h-4" /> Prev
+              </button>
+              <button
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => p + 1)}
+                className="btn-secondary flex items-center gap-1 disabled:opacity-40"
+              >
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
           </div>
         </>

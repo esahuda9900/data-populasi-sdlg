@@ -3,57 +3,80 @@ import { supabase } from '../lib/supabase'
 import { Truck, FileWarning, FileCheck, AlertCircle, MapPin, Wrench } from 'lucide-react'
 
 export default function Dashboard() {
-  const { data: units = [], isLoading: loadingUnits } = useQuery({
-    queryKey: ['units'],
+  const { data: stats, isLoading } = useQuery({
+    queryKey: ['dashboard_stats'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('units').select('*')
-      if (error) throw error
-      return data || []
+      // Exact counts (not limited to 1000)
+      const [unitsCount, missingCount, uploadedCount, processStats] = await Promise.all([
+        supabase.from('units').select('*', { count: 'exact', head: true }),
+        supabase.from('unit_documents').select('*', { count: 'exact', head: true }).in('status', ['missing', 'pending']),
+        supabase.from('unit_documents').select('*', { count: 'exact', head: true }).eq('status', 'uploaded'),
+        supabase.from('unit_process').select('arrival_check, pdi_check, comm_check'),
+      ])
+
+      // Aggregate model & cabang with higher limit
+      const { data: unitRows } = await supabase
+        .from('units')
+        .select('model, under_cabang')
+        .limit(10000)
+
+      const byModel: Record<string, number> = {}
+      const byCabang: Record<string, number> = {}
+      for (const u of unitRows || []) {
+        const m = u.model || 'Unknown'
+        const c = u.under_cabang || 'Unknown'
+        byModel[m] = (byModel[m] || 0) + 1
+        byCabang[c] = (byCabang[c] || 0) + 1
+      }
+
+      // Process missing counts
+      let pdiKosong = 0
+      let commKosong = 0
+      let arrivalKosong = 0
+      // Fetch process in pages if needed
+      const { count: processTotal } = await supabase
+        .from('unit_process')
+        .select('*', { count: 'exact', head: true })
+
+      const { data: procRows } = await supabase
+        .from('unit_process')
+        .select('pdi_check, comm_check, arrival_check')
+        .limit(10000)
+
+      for (const p of procRows || []) {
+        if (!p.pdi_check || p.pdi_check === 'KOSONG') pdiKosong++
+        if (!p.comm_check || p.comm_check === 'KOSONG') commKosong++
+        if (!p.arrival_check || p.arrival_check === 'KOSONG') arrivalKosong++
+      }
+
+      return {
+        totalUnits: unitsCount.count ?? 0,
+        missingDocs: missingCount.count ?? 0,
+        uploadedDocs: uploadedCount.count ?? 0,
+        byModel,
+        byCabang,
+        pdiKosong,
+        commKosong,
+        arrivalKosong,
+        processTotal: processTotal ?? 0,
+      }
     },
   })
 
-  const { data: docs = [], isLoading: loadingDocs } = useQuery({
-    queryKey: ['unit_documents'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('unit_documents')
-        .select('*, document_types(name, code, is_required)')
-      if (error) throw error
-      return data || []
-    },
-  })
-
-  const totalUnits = units.length
-  const byModel = units.reduce((acc: Record<string, number>, u: any) => {
-    const m = u.model || 'Unknown'
-    acc[m] = (acc[m] || 0) + 1
-    return acc
-  }, {})
-  const byCabang = units.reduce((acc: Record<string, number>, u: any) => {
-    const c = u.under_cabang || 'Unknown'
-    acc[c] = (acc[c] || 0) + 1
-    return acc
-  }, {})
-  const missingDocs = docs.filter((d: any) => d.status === 'missing' || d.status === 'pending').length
-  const uploadedDocs = docs.filter((d: any) => d.status === 'uploaded').length
-  const requiredMissing = docs.filter(
-    (d: any) => d.document_types?.is_required && (d.status === 'missing' || d.status === 'pending')
-  ).length
-
-  const stats = [
-    { label: 'Total Unit', value: totalUnits, icon: Truck, color: 'text-blue-400' },
-    { label: 'Dokumen Missing', value: missingDocs, icon: FileWarning, color: 'text-amber-400' },
-    { label: 'Dokumen Uploaded', value: uploadedDocs, icon: FileCheck, color: 'text-accent' },
-    { label: 'Required Belum Ada', value: requiredMissing, icon: AlertCircle, color: 'text-red-400' },
-  ]
-
-  if (loadingUnits || loadingDocs) {
+  if (isLoading || !stats) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
+
+  const cards = [
+    { label: 'Total Unit', value: stats.totalUnits, icon: Truck, color: 'text-blue-400' },
+    { label: 'Dokumen Missing', value: stats.missingDocs, icon: FileWarning, color: 'text-amber-400' },
+    { label: 'Dokumen Uploaded', value: stats.uploadedDocs, icon: FileCheck, color: 'text-accent' },
+    { label: 'PDI Belum', value: stats.pdiKosong, icon: AlertCircle, color: 'text-red-400' },
+  ]
 
   return (
     <div className="space-y-8">
@@ -63,17 +86,32 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat) => (
+        {cards.map((stat) => (
           <div key={stat.label} className="card flex items-start gap-4">
             <div className={`p-2.5 rounded-lg bg-surface-800 ${stat.color}`}>
               <stat.icon className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-surface-50">{stat.value}</p>
+              <p className="text-2xl font-semibold text-surface-50">{stat.value.toLocaleString('id-ID')}</p>
               <p className="text-xs text-surface-400 mt-0.5">{stat.label}</p>
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="card">
+          <p className="text-xs text-surface-400">Arrival KOSONG</p>
+          <p className="text-xl font-semibold text-surface-50 mt-1">{stats.arrivalKosong.toLocaleString('id-ID')}</p>
+        </div>
+        <div className="card">
+          <p className="text-xs text-surface-400">PDI KOSONG</p>
+          <p className="text-xl font-semibold text-red-400 mt-1">{stats.pdiKosong.toLocaleString('id-ID')}</p>
+        </div>
+        <div className="card">
+          <p className="text-xs text-surface-400">COMM KOSONG</p>
+          <p className="text-xl font-semibold text-surface-50 mt-1">{stats.commKosong.toLocaleString('id-ID')}</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -83,18 +121,15 @@ export default function Dashboard() {
             <h3 className="text-sm font-medium text-surface-200">Top Model</h3>
           </div>
           <div className="space-y-2">
-            {Object.entries(byModel)
-              .sort((a, b) => (b[1] as number) - (a[1] as number))
-              .slice(0, 8)
+            {Object.entries(stats.byModel)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 10)
               .map(([model, count]) => (
                 <div key={model} className="flex items-center justify-between text-sm">
                   <span className="text-surface-300">{model}</span>
-                  <span className="font-medium text-surface-100">{count as number}</span>
+                  <span className="font-medium text-surface-100">{count.toLocaleString('id-ID')}</span>
                 </div>
               ))}
-            {Object.keys(byModel).length === 0 && (
-              <p className="text-sm text-surface-500">Belum ada data</p>
-            )}
           </div>
         </div>
 
@@ -104,40 +139,27 @@ export default function Dashboard() {
             <h3 className="text-sm font-medium text-surface-200">Per Cabang</h3>
           </div>
           <div className="space-y-2">
-            {Object.entries(byCabang)
-              .sort((a, b) => (b[1] as number) - (a[1] as number))
-              .slice(0, 8)
+            {Object.entries(stats.byCabang)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 10)
               .map(([cabang, count]) => (
                 <div key={cabang} className="flex items-center justify-between text-sm">
                   <span className="text-surface-300">{cabang}</span>
-                  <span className="font-medium text-surface-100">{count as number}</span>
+                  <span className="font-medium text-surface-100">{count.toLocaleString('id-ID')}</span>
                 </div>
               ))}
-            {Object.keys(byCabang).length === 0 && (
-              <p className="text-sm text-surface-500">Belum ada data</p>
-            )}
           </div>
         </div>
       </div>
 
-      {totalUnits === 0 && (
-        <div className="card text-center py-12">
-          <Truck className="w-10 h-10 text-surface-600 mx-auto mb-3" />
-          <p className="text-surface-300 font-medium">Data unit sedang di-import</p>
-          <p className="text-sm text-surface-500 mt-1">
-            Master data sedang diproses. Refresh halaman setelah beberapa saat.
-          </p>
-        </div>
-      )}
-
-      {requiredMissing > 0 && (
+      {stats.missingDocs > 0 && (
         <div className="card border-amber-500/30 bg-amber-500/5">
           <div className="flex items-center gap-2 text-amber-400 mb-2">
             <AlertCircle className="w-4 h-4" />
             <span className="text-sm font-medium">Perhatian</span>
           </div>
           <p className="text-sm text-surface-300">
-            Ada <strong>{requiredMissing}</strong> dokumen wajib yang belum di-upload.
+            Ada <strong>{stats.missingDocs.toLocaleString('id-ID')}</strong> dokumen wajib yang belum di-upload.
             Cek halaman Dokumen untuk detail.
           </p>
         </div>
