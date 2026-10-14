@@ -1,6 +1,7 @@
 -- =============================================================================
 -- SDLG POPULATION & DOCUMENT MONITOR - PRODUCTION DATABASE SCHEMA & POLICIES
 -- Phase 1 hardened (2026-10-13)
+-- Phase 2 security + policy cleanup (2026-10-14)
 -- Execute this script in your Supabase SQL Editor to enforce security, integrity,
 -- views, and automated workflow triggers.
 -- =============================================================================
@@ -161,6 +162,35 @@ BEGIN
   END IF;
 END $$;
 
--- 9. NOTE: Raw/legacy tables live in schema "staging"
+-- 9. Date parser helper (search_path fixed)
+CREATE OR REPLACE FUNCTION public.parse_mdy_or_iso(t text)
+RETURNS date
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT CASE
+    WHEN t IS NULL OR TRIM(t) = '' THEN NULL
+    WHEN t ~ '^\d{4}-\d{2}-\d{2}' THEN t::date
+    WHEN t ~ '^\d{1,2}/\d{1,2}/\d{4}$' THEN to_date(t, 'MM/DD/YYYY')
+    WHEN t ~ '^\d{1,2}-\d{1,2}-\d{4}$' THEN to_date(t, 'DD-MM-YYYY')
+    WHEN t ~ '^[0-9]{5}$' THEN ('1899-12-30'::date + t::int)
+    ELSE NULL
+  END
+$$;
+
+-- 10. refresh_unit_oldp_flags — SECURITY DEFINER, service_role only
+-- (definition lives in DB; access restricted)
+REVOKE EXECUTE ON FUNCTION public.refresh_unit_oldp_flags() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.refresh_unit_oldp_flags() FROM anon;
+REVOKE EXECUTE ON FUNCTION public.refresh_unit_oldp_flags() FROM authenticated;
+
+-- 11. import_logs: single policy only (avoid multiple permissive)
+DROP POLICY IF EXISTS "Authenticated users can insert import_logs" ON public.import_logs;
+DROP POLICY IF EXISTS "Authenticated users can read import_logs" ON public.import_logs;
+-- keep auth_all_import_logs if present
+
+-- 12. NOTE: Raw/legacy tables live in schema "staging"
 -- (data tarikan oldp, data penjualan unit, data sju, data tarikan dari crm, data wo ax, data kumpulan semua data itr by lookup)
 -- They are isolated from the public API surface. Access via service_role only if needed for ETL.
+-- RLS enabled without policies = intentional lockout for anon/authenticated.
