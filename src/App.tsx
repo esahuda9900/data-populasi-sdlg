@@ -8,6 +8,7 @@ import { NetworkStatus } from './components/NetworkStatus'
 import { Skeleton } from './components/Skeleton'
 
 const Login = lazy(() => import('./pages/Login'))
+const MasterUnit = lazy(() => import('./pages/MasterUnit'))
 const Sales = lazy(() => import('./pages/Sales'))
 const Departures = lazy(() => import('./pages/Departures'))
 const Commissioning = lazy(() => import('./pages/Commissioning'))
@@ -68,15 +69,14 @@ function App() {
         <Layout session={session}>
           <Suspense fallback={<RouteFallback />}>
             <Routes>
+              <Route path="/" element={<MasterUnit />} />
               <Route path="/penjualan" element={<Sales />} />
               <Route path="/keberangkatan" element={<Departures />} />
               <Route path="/commissioning" element={<Commissioning />} />
-              {/* Removed Proses section — redirect old paths */}
-              <Route path="/" element={<Navigate to="/penjualan" replace />} />
-              <Route path="/units" element={<Navigate to="/penjualan" replace />} />
-              <Route path="/documents" element={<Navigate to="/penjualan" replace />} />
-              <Route path="/process" element={<Navigate to="/penjualan" replace />} />
-              <Route path="*" element={<Navigate to="/penjualan" replace />} />
+              <Route path="/units" element={<Navigate to="/" replace />} />
+              <Route path="/documents" element={<Navigate to="/" replace />} />
+              <Route path="/process" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
         </Layout>

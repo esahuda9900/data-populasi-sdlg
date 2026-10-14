@@ -11,6 +11,7 @@ import {
   ShoppingCart,
   Ship,
   Wrench,
+  PackageSearch,
 } from 'lucide-react'
 import { Session } from '@supabase/supabase-js'
 import { supabase, Unit } from '../lib/supabase'
@@ -18,6 +19,10 @@ import { cn } from '../lib/utils'
 import AiUpdateModal from './AiUpdateModal'
 
 const navSections = [
+  {
+    title: 'Master',
+    items: [{ to: '/', label: 'Master Unit', icon: PackageSearch }],
+  },
   {
     title: 'Data sumber',
     items: [
@@ -62,7 +67,7 @@ export default function Layout({
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    navigate('/penjualan')
+    navigate('/')
   }
 
   const userEmail = session?.user?.email || 'operator@sdlg.id'
@@ -79,6 +84,7 @@ export default function Layout({
               <NavLink
                 key={item.to}
                 to={item.to}
+                end={item.to === '/'}
                 onClick={onNavigate}
                 className={({ isActive }) =>
                   cn(
@@ -108,7 +114,7 @@ export default function Layout({
           </div>
           <div>
             <h1 className="text-sm font-semibold tracking-tight text-surface-50">SDLG Monitor</h1>
-            <p className="text-[10px] text-surface-400">Data Sumber</p>
+            <p className="text-[10px] text-surface-400">Master & Data Sumber</p>
           </div>
         </div>
         <button
@@ -163,7 +169,7 @@ export default function Layout({
           </div>
           <div>
             <h1 className="text-base font-semibold text-surface-50">SDLG Monitor</h1>
-            <p className="text-xs text-surface-400">Data Sumber</p>
+            <p className="text-xs text-surface-400">Master & Data Sumber</p>
           </div>
         </div>
 
