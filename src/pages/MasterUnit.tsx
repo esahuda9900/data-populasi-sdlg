@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
+import {
+  parseMasterSearch,
+  maintainUnitMaster,
+  type UnitMaster,
+  type MasterFilter,
+} from '../lib/master'
 import {
   Search,
   X,
@@ -13,13 +19,13 @@ import {
   Wrench,
   Database,
   ClipboardList,
-  Users,
   Link2,
+  Shield,
 } from 'lucide-react'
 import { TableSkeleton, Skeleton } from '../components/Skeleton'
 import { useDebounce } from '../lib/useDebounce'
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 25
 
 function Flag({ on, label }: { on: boolean; label: string }) {
   return (
@@ -45,26 +51,24 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
   )
 }
 
-function parseSearch(raw: string): { text: string; sn6: string | null; model: string | null } {
-  const text = raw.trim()
-  if (!text) return { text: '', sn6: null, model: null }
-  const digits = text.replace(/\D/g, '')
-  const sn6 = digits.length >= 6 ? digits.slice(-6) : digits.length === 5 ? digits : null
-  const modelMatch = text.match(/\b([A-Za-z][A-Za-z0-9-]{2,})\b/)
-  const model =
-    modelMatch && !/^\d+$/.test(modelMatch[1]) && modelMatch[1].length < 20
-      ? modelMatch[1].toUpperCase()
-      : null
-  return { text, sn6, model }
-}
+const FILTERS: { id: MasterFilter; label: string }[] = [
+  { id: 'all', label: 'Semua' },
+  { id: 'sdlg', label: 'SDLG saja' },
+  { id: 'complete', label: 'Complete sold' },
+  { id: 'gap_ops', label: 'Sold · gap SJU/WO' },
+]
 
 export default function MasterUnitPage() {
+  const qc = useQueryClient()
   const [search, setSearch] = useState('')
   const debounced = useDebounce(search, 300)
   const [page, setPage] = useState(0)
+  const [filter, setFilter] = useState<MasterFilter>('sdlg')
   const [selectedVin, setSelectedVin] = useState<string | null>(null)
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
   const [resolvedFromAlias, setResolvedFromAlias] = useState<string | null>(null)
+  const [maintaining, setMaintaining] = useState(false)
+  const [maintainMsg, setMaintainMsg] = useState<string | null>(null)
 
   const { data: aliasHit } = useQuery({
     queryKey: ['vin_alias_resolve', debounced],
@@ -82,51 +86,67 @@ export default function MasterUnitPage() {
   })
 
   const effectiveSearch =
-    aliasHit?.alias_vin &&
-    debounced.trim().toUpperCase() === aliasHit.alias_vin.toUpperCase()
+    aliasHit?.alias_vin && debounced.trim().toUpperCase() === aliasHit.alias_vin.toUpperCase()
       ? aliasHit.canonical_vin
       : debounced
 
   useEffect(() => {
-    if (
-      aliasHit?.alias_vin &&
-      debounced.trim().toUpperCase() === aliasHit.alias_vin.toUpperCase()
-    ) {
+    if (aliasHit?.alias_vin && debounced.trim().toUpperCase() === aliasHit.alias_vin.toUpperCase()) {
       setResolvedFromAlias(aliasHit.alias_vin)
-    } else {
-      setResolvedFromAlias(null)
-    }
+    } else setResolvedFromAlias(null)
   }, [aliasHit, debounced])
 
+  const { data: stats } = useQuery({
+    queryKey: ['v_unit_master_stats'],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const [all, sdlg, complete] = await Promise.all([
+        supabase.from('v_unit_master').select('*', { count: 'exact', head: true }),
+        supabase.from('v_unit_master').select('*', { count: 'exact', head: true }).eq('is_sdlg_canonical', true),
+        supabase.from('v_unit_master').select('*', { count: 'exact', head: true }).eq('master_stage', 'COMPLETE_SOLD'),
+      ])
+      return {
+        all: all.count ?? 0,
+        sdlg: sdlg.count ?? 0,
+        complete: complete.count ?? 0,
+      }
+    },
+  })
+
   const { data: listData, isLoading: listLoading, refetch, isRefetching } = useQuery({
-    queryKey: ['v_unit_master_list', effectiveSearch, page],
+    queryKey: ['v_unit_master_list', effectiveSearch, page, filter],
     staleTime: 15_000,
     queryFn: async () => {
-      let q = supabase
-        .from('v_unit_master')
-        .select('*', { count: 'exact' })
-        .order('unit_number', { ascending: true })
+      let q = supabase.from('v_unit_master').select('*', { count: 'exact' })
 
-      const parsed = parseSearch(effectiveSearch)
+      if (filter === 'sdlg') q = q.eq('is_sdlg_canonical', true)
+      if (filter === 'complete') q = q.eq('master_stage', 'COMPLETE_SOLD')
+      if (filter === 'gap_ops') {
+        q = q.eq('master_stage', 'COMPLETE_SOLD').or('src_sju.eq.false,src_wo_comm.eq.false')
+      }
+
+      const parsed = parseMasterSearch(effectiveSearch)
       if (parsed.text) {
         const s = parsed.text
         if (parsed.model && parsed.sn6) {
           q = q.or(
-            `match_key.eq.${parsed.model}|${parsed.sn6},vin.ilike.%${s}%,unit_number.ilike.%${s}%,sn6.eq.${parsed.sn6},serial_number.ilike.%${parsed.sn6}%,model.ilike.%${parsed.model}%`
+            `match_key.eq.${parsed.model}|${parsed.sn6},vin.ilike.%${s}%,sn6.eq.${parsed.sn6},model.ilike.%${parsed.model}%`
           )
         } else if (/^\d{5,7}$/.test(s) && parsed.sn6) {
           q = q.or(`sn6.eq.${parsed.sn6},serial_number.eq.${parsed.sn6},vin.ilike.%${parsed.sn6}%`)
         } else {
           q = q.or(
-            `vin.ilike.%${s}%,unit_number.ilike.%${s}%,serial_number.ilike.%${s}%,sn6.ilike.%${s}%,match_key.ilike.%${s}%,model.ilike.%${s}%,customer.ilike.%${s}%,under_cabang.ilike.%${s}%,device_number.ilike.%${s}%`
+            `vin.ilike.%${s}%,unit_number.ilike.%${s}%,serial_number.ilike.%${s}%,sn6.ilike.%${s}%,match_key.ilike.%${s}%,model.ilike.%${s}%,customer.ilike.%${s}%,crm_end_customer.ilike.%${s}%,under_cabang.ilike.%${s}%`
           )
         }
       }
 
+      q = q.order('is_sdlg_canonical', { ascending: false }).order('unit_number', { ascending: true })
+
       const from = page * PAGE_SIZE
       const { data, error, count } = await q.range(from, from + PAGE_SIZE - 1)
       if (error) throw error
-      return { rows: data || [], total: count ?? 0 }
+      return { rows: (data || []) as UnitMaster[], total: count ?? 0 }
     },
   })
 
@@ -144,7 +164,7 @@ export default function MasterUnitPage() {
       else if (selectedVin) q = q.eq('vin', selectedVin)
       const { data, error } = await q.maybeSingle()
       if (error) throw error
-      return data
+      return data as UnitMaster | null
     },
   })
 
@@ -175,13 +195,23 @@ export default function MasterUnitPage() {
     queryFn: () => loadByUnit('work_orders', 'start_date'),
   })
 
-  const openUnit = (r: any) => {
-    setSelectedUnitId(r.unit_id)
-    setSelectedVin(r.vin || null)
-  }
-  const closeDetail = () => {
-    setSelectedUnitId(null)
-    setSelectedVin(null)
+  const onMaintain = async () => {
+    setMaintaining(true)
+    setMaintainMsg(null)
+    try {
+      const r = await maintainUnitMaster()
+      setMaintainMsg(
+        `OK · alias ${r?.alias_count ?? '—'} · master ${r?.master_count ?? '—'} · SDLG ${r?.sdlg_count ?? '—'}`
+      )
+      await qc.invalidateQueries({ queryKey: ['v_unit_master_list'] })
+      await qc.invalidateQueries({ queryKey: ['v_unit_master_stats'] })
+      await qc.invalidateQueries({ queryKey: ['v_unit_master_one'] })
+      refetch()
+    } catch (e: any) {
+      setMaintainMsg(e?.message || 'Gagal maintain')
+    } finally {
+      setMaintaining(false)
+    }
   }
 
   return (
@@ -190,12 +220,60 @@ export default function MasterUnitPage() {
         <div>
           <h2 className="text-xl font-bold text-surface-50">Master Data Unit</h2>
           <p className="text-sm text-surface-400">
-            Acuan resmi SDLG (OLDP + CRM). Cari VIN · model+SN · 6 digit serial.
+            Backend: VIN SDLG → alias → model|sn6. Frontend: filter + detail OLDP/CRM + ops.
           </p>
         </div>
-        <button type="button" onClick={() => refetch()} className="btn-secondary text-xs px-3 py-2 flex items-center gap-1.5">
-          <RefreshCw className={`w-3.5 h-3.5 ${isRefetching ? 'animate-spin' : ''}`} /> Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onMaintain}
+            disabled={maintaining}
+            className="btn-secondary text-xs px-3 py-2 flex items-center gap-1.5"
+            title="Refresh vin_alias + relink sales/SJU/WO ke kanonik"
+          >
+            <Shield className={`w-3.5 h-3.5 ${maintaining ? 'animate-pulse' : ''}`} />
+            Maintain DB
+          </button>
+          <button type="button" onClick={() => refetch()} className="btn-secondary text-xs px-3 py-2 flex items-center gap-1.5">
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefetching ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
+      </div>
+
+      {stats && (
+        <div className="grid grid-cols-3 gap-2">
+          <div className="card px-3 py-2 text-center">
+            <p className="text-[10px] text-surface-500 uppercase">Master</p>
+            <p className="text-lg font-bold text-surface-100">{stats.all.toLocaleString('id-ID')}</p>
+          </div>
+          <div className="card px-3 py-2 text-center border-sky-500/20">
+            <p className="text-[10px] text-sky-400/80 uppercase">SDLG</p>
+            <p className="text-lg font-bold text-sky-300">{stats.sdlg.toLocaleString('id-ID')}</p>
+          </div>
+          <div className="card px-3 py-2 text-center border-emerald-500/20">
+            <p className="text-[10px] text-emerald-400/80 uppercase">Complete sold</p>
+            <p className="text-lg font-bold text-emerald-300">{stats.complete.toLocaleString('id-ID')}</p>
+          </div>
+        </div>
+      )}
+
+      {maintainMsg && <p className="text-xs text-surface-400 font-mono">{maintainMsg}</p>}
+
+      <div className="flex flex-wrap gap-1.5">
+        {FILTERS.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => { setFilter(f.id); setPage(0) }}
+            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+              filter === f.id
+                ? 'bg-accent/15 text-accent border-accent/40 font-semibold'
+                : 'border-surface-700 text-surface-400 hover:bg-surface-800'
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
       </div>
 
       <div className="space-y-2">
@@ -203,7 +281,7 @@ export default function MasterUnitPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
           <input
             className="input pl-9 w-full text-sm font-mono"
-            placeholder="VLGE… · E6210F 610003 · 610003 · cabang…"
+            placeholder="VLGE… · E6210F 610003 · 610003 · customer…"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(0) }}
           />
@@ -216,7 +294,7 @@ export default function MasterUnitPage() {
         {resolvedFromAlias && aliasHit && (
           <p className="text-xs text-amber-400/90 flex items-center gap-1.5">
             <Link2 className="w-3.5 h-3.5" />
-            VIN typo <span className="font-mono">{resolvedFromAlias}</span> →{' '}
+            Typo <span className="font-mono">{resolvedFromAlias}</span> →{' '}
             <span className="font-mono text-accent">{aliasHit.canonical_vin}</span>
             <span className="text-surface-500">({aliasHit.reason})</span>
           </p>
@@ -236,37 +314,43 @@ export default function MasterUnitPage() {
                       <tr className="border-b border-surface-800 text-xs text-surface-400 text-left">
                         <th className="px-3 py-3">VIN / Unit</th>
                         <th className="px-3 py-3">Model · SN</th>
-                        <th className="px-3 py-3">Cabang</th>
+                        <th className="px-3 py-3">Stage</th>
                         <th className="px-3 py-3">Sumber</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-surface-800/40">
-                      {rows.map((r: any) => {
+                      {rows.map((r) => {
                         const active = r.unit_id === selectedUnitId
                         return (
                           <tr
                             key={r.unit_id}
-                            onClick={() => openUnit(r)}
+                            onClick={() => { setSelectedUnitId(r.unit_id); setSelectedVin(r.vin) }}
                             className={`cursor-pointer transition-colors ${active ? 'bg-accent/10' : 'hover:bg-surface-800/40'}`}
                           >
                             <td className="px-3 py-2.5">
                               <div className="font-mono text-[11px] text-accent">{r.vin || '—'}</div>
                               <div className="text-xs text-surface-200">{r.unit_number || '—'}</div>
-                              <div className="text-[10px] text-surface-500 truncate max-w-[140px]">{r.customer || r.crm_end_customer || '—'}</div>
+                              <div className="text-[10px] text-surface-500 truncate max-w-[140px]">
+                                {r.customer || r.crm_end_customer || '—'}
+                              </div>
                             </td>
                             <td className="px-3 py-2.5 text-xs">
                               <span className="font-semibold">{r.model || '—'}</span>
                               <span className="text-surface-500 font-mono ml-1">{r.sn6 || ''}</span>
                             </td>
-                            <td className="px-3 py-2.5 text-xs">{r.under_cabang || '—'}</td>
+                            <td className="px-3 py-2.5">
+                              <span className="text-[10px] font-mono text-surface-400">{r.master_stage}</span>
+                            </td>
                             <td className="px-3 py-2.5">
                               <div className="flex flex-wrap gap-0.5">
-                                {r.is_sdlg_canonical && <span className="text-[9px] px-1 rounded bg-sky-500/20 text-sky-300">SDLG</span>}
+                                {r.is_sdlg_canonical && (
+                                  <span className="text-[9px] px-1 rounded bg-sky-500/20 text-sky-300">SDLG</span>
+                                )}
                                 {r.src_oldp && <span className="text-[9px] px-1 rounded bg-blue-500/20 text-blue-300">OLDP</span>}
+                                {r.src_crm && <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-300">CRM</span>}
                                 {r.src_sales && <span className="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-300">Jual</span>}
                                 {r.src_sju && <span className="text-[9px] px-1 rounded bg-cyan-500/20 text-cyan-300">SJU</span>}
                                 {r.src_wo && <span className="text-[9px] px-1 rounded bg-violet-500/20 text-violet-300">WO</span>}
-                                {r.src_crm && <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-300">CRM</span>}
                               </div>
                             </td>
                           </tr>
@@ -275,7 +359,7 @@ export default function MasterUnitPage() {
                       {!rows.length && (
                         <tr>
                           <td colSpan={4} className="px-3 py-10 text-center text-surface-500 text-sm">
-                            Tidak ada unit. Coba VIN, model+SN, atau 6 digit serial.
+                            Tidak ada unit untuk filter/cari ini.
                           </td>
                         </tr>
                       )}
@@ -301,7 +385,9 @@ export default function MasterUnitPage() {
               <h3 className="text-sm font-semibold text-surface-100 flex items-center gap-2">
                 <Package className="w-4 h-4 text-accent" /> Detail unit
               </h3>
-              <button type="button" onClick={closeDetail} className="text-xs text-surface-400 hover:text-surface-200">Tutup</button>
+              <button type="button" onClick={() => { setSelectedUnitId(null); setSelectedVin(null) }} className="text-xs text-surface-400">
+                Tutup
+              </button>
             </div>
 
             {masterLoading || !master ? (
@@ -314,7 +400,7 @@ export default function MasterUnitPage() {
                       <p className="font-mono text-sm text-accent font-bold">{master.vin || '—'}</p>
                       <p className="text-lg font-semibold text-surface-50">{master.unit_number}</p>
                       <p className="text-xs text-surface-400">
-                        {master.model} · SN {master.sn6 || master.serial_number || '—'}
+                        {master.model} · SN {master.sn6 || '—'}
                         {master.match_key ? <span className="text-surface-600 font-mono ml-2">{master.match_key}</span> : null}
                       </p>
                       {Array.isArray(master.alias_vins) && master.alias_vins.length > 0 && (
@@ -324,13 +410,17 @@ export default function MasterUnitPage() {
                       )}
                     </div>
                     <div className="text-right">
-                      <span className={`inline-block px-2 py-1 rounded text-[10px] font-bold border ${
-                        master.is_complete_oldp || master.master_stage === 'COMPLETE_SOLD'
-                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                          : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                      }`}>{master.master_stage}</span>
+                      <span
+                        className={`inline-block px-2 py-1 rounded text-[10px] font-bold border ${
+                          master.master_stage === 'COMPLETE_SOLD'
+                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                            : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                        }`}
+                      >
+                        {master.master_stage}
+                      </span>
                       <p className="text-[10px] text-surface-500 mt-1">
-                        {master.is_sdlg_canonical ? 'SDLG canonical · ' : ''}{master.unit_status}
+                        {master.is_sdlg_canonical ? 'SDLG canonical · ' : 'Non-SDLG · '}{master.unit_status}
                       </p>
                     </div>
                   </div>
@@ -344,11 +434,11 @@ export default function MasterUnitPage() {
                   </div>
                   <div className="grid sm:grid-cols-2 gap-x-6 pt-1">
                     <Row k="Cabang" v={master.under_cabang} />
-                    <Row k="Customer (master)" v={master.customer} />
+                    <Row k="Customer" v={master.customer} />
                     <Row k="Lokasi" v={master.location} />
-                    <Row k="Stock / marketing" v={`${master.stock_status || '—'} / ${master.marketing_status || '—'}`} />
-                    <Row k="Device no" v={master.device_number} />
-                    <Row k="Ops counts" v={`Jual ${master.sales_count || 0} · SJU ${master.sju_count || 0} · WO ${master.wo_count || 0}`} />
+                    <Row k="Stock / mkt" v={`${master.stock_status || '—'} / ${master.marketing_status || '—'}`} />
+                    <Row k="Device" v={master.device_number} />
+                    <Row k="Ops" v={`Jual ${master.sales_count ?? 0} · SJU ${master.sju_count ?? 0} · WO ${master.wo_count ?? 0}`} />
                   </div>
                 </div>
 
@@ -362,7 +452,7 @@ export default function MasterUnitPage() {
                     <Row k="MS1 / MS2 / MS3" v={`${master.oldp_ms1_date || '—'} / ${master.oldp_ms2_date || '—'} / ${master.oldp_ms3_date || '—'}`} />
                     <Row k="PDI" v={master.oldp_pdi_date} />
                     <Row k="Sales date" v={master.oldp_sales_date} />
-                    <Row k="Complete (has sales)" v={master.has_oldp_sales ? 'YES' : 'NO'} />
+                    <Row k="Complete" v={master.has_oldp_sales ? 'YES' : 'NO'} />
                   </div>
                 </section>
 
@@ -390,10 +480,10 @@ export default function MasterUnitPage() {
                         <div key={s.id} className="text-xs grid sm:grid-cols-2 gap-x-4 border border-surface-800 rounded-lg p-2">
                           <Row k="Invoice" v={s.invoice_sales} />
                           <Row k="Salesman" v={s.salesman} />
-                          <Row k="Cabang jual" v={s.branch_sales} />
+                          <Row k="Cabang" v={s.branch_sales} />
                           <Row k="Bulan" v={s.sales_month} />
                           <Row k="LDP" v={s.ldp} />
-                          <Row k="Service interval" v={s.service_interval} />
+                          <Row k="Service" v={s.service_interval} />
                         </div>
                       ))}
                     </div>
@@ -428,13 +518,16 @@ export default function MasterUnitPage() {
                     <div className="space-y-2">
                       {wos.map((w: any) => (
                         <div key={w.id} className="text-xs border border-surface-800 rounded-lg p-2 space-y-1">
-                          <div className="flex justify-between"><span className="font-mono text-accent">{w.case_number}</span><span>{w.status}</span></div>
+                          <div className="flex justify-between">
+                            <span className="font-mono text-accent">{w.case_number}</span>
+                            <span>{w.status}</span>
+                          </div>
                           <p className="text-surface-200">{w.description}</p>
                           <div className="grid sm:grid-cols-2 gap-x-4">
                             <Row k="Type / group" v={`${w.type || '—'} / ${w.case_group || '—'}`} />
                             <Row k="PIC" v={w.person_in_charge} />
                             <Row k="Start" v={w.start_date} />
-                            <Row k="Est. hours" v={w.estimated_hours} />
+                            <Row k="Hours" v={w.estimated_hours} />
                           </div>
                         </div>
                       ))}
@@ -444,7 +537,7 @@ export default function MasterUnitPage() {
 
                 <p className="text-[10px] text-surface-600 flex items-center gap-1">
                   <Database className="w-3 h-3" />
-                  SDLG = OLDP+CRM · ops = jual/SJU/WO · match: VIN → alias → model|sn6
+                  maintain_unit_master() · resolve_unit_id() · v_unit_master
                 </p>
               </>
             )}
@@ -452,10 +545,10 @@ export default function MasterUnitPage() {
         )}
       </div>
 
-      {!selectedUnitId && !selectedVin && !listLoading && rows.length > 0 && (
+      {!selectedUnitId && !listLoading && rows.length > 0 && (
         <p className="text-xs text-surface-500 flex items-center gap-1.5">
           <ClipboardList className="w-3.5 h-3.5" />
-          Klik unit. Cari juga <span className="font-mono">610003</span> atau <span className="font-mono">E6210F 610003</span>.
+          Default filter <b>SDLG saja</b>. Maintain DB setelah upload OLDP/CRM baru.
         </p>
       )}
     </div>
