@@ -45,6 +45,20 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
   )
 }
 
+/** Parse free-text: full VIN, 6-digit SN, or "E6210F 610003" / "E6210F|610003" */
+function parseSearch(raw: string): { text: string; sn6: string | null; model: string | null } {
+  const text = raw.trim()
+  if (!text) return { text: '', sn6: null, model: null }
+  const digits = text.replace(/\D/g, '')
+  const sn6 = digits.length >= 6 ? digits.slice(-6) : digits.length === 5 ? digits : null
+  const modelMatch = text.match(/\b([A-Za-z][A-Za-z0-9-]{2,})\b/)
+  const model =
+    modelMatch && !/^\d+$/.test(modelMatch[1]) && modelMatch[1].length < 20
+      ? modelMatch[1].toUpperCase()
+      : null
+  return { text, sn6, model }
+}
+
 export default function MasterUnitPage() {
   const [search, setSearch] = useState('')
   const debounced = useDebounce(search, 300)
@@ -53,7 +67,6 @@ export default function MasterUnitPage() {
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
   const [resolvedFromAlias, setResolvedFromAlias] = useState<string | null>(null)
 
-  // Resolve typo VIN → canonical (SDLG)
   const { data: aliasHit } = useQuery({
     queryKey: ['vin_alias_resolve', debounced],
     enabled: debounced.trim().length >= 8,
@@ -95,11 +108,22 @@ export default function MasterUnitPage() {
         .select('*', { count: 'exact' })
         .order('unit_number', { ascending: true })
 
-      if (effectiveSearch.trim()) {
-        const s = effectiveSearch.trim()
-        q = q.or(
-          `vin.ilike.%${s}%,unit_number.ilike.%${s}%,serial_number.ilike.%${s}%,model.ilike.%${s}%,customer.ilike.%${s}%,under_cabang.ilike.%${s}%,device_number.ilike.%${s}%`
-        )
+      const parsed = parseSearch(effectiveSearch)
+      if (parsed.text) {
+        const s = parsed.text
+        // Prefer exact model+sn6 when both present
+        if (parsed.model && parsed.sn6) {
+          q = q.or(
+            `match_key.eq.${parsed.model}|${parsed.sn6},vin.ilike.%${s}%,unit_number.ilike.%${s}%,sn6.eq.${parsed.sn6},serial_number.ilike.%${parsed.sn6}%,model.ilike.%${parsed.model}%`
+          )
+        } else if (/^\d{5,7}$/.test(s) && parsed.sn6) {
+          // pure serial search
+          q = q.or(`sn6.eq.${parsed.sn6},serial_number.eq.${parsed.sn6},vin.ilike.%${parsed.sn6}%`)
+        } else {
+          q = q.or(
+            `vin.ilike.%${s}%,unit_number.ilike.%${s}%,serial_number.ilike.%${s}%,sn6.ilike.%${s}%,match_key.ilike.%${s}%,model.ilike.%${s}%,customer.ilike.%${s}%,under_cabang.ilike.%${s}%,device_number.ilike.%${s}%`
+          )
+        }
       }
 
       const from = page * PAGE_SIZE
@@ -204,7 +228,7 @@ export default function MasterUnitPage() {
         <div>
           <h2 className="text-xl font-bold text-surface-50">Master Data Unit</h2>
           <p className="text-sm text-surface-400">
-            VIN resmi = OLDP / CRM (SDLG). Typo VIN otomatis diarahkan ke kanonik.
+            Cari VIN · model+serial 6 digit · SN saja. Acuan resmi = OLDP/CRM (SDLG).
           </p>
         </div>
         <button
@@ -221,7 +245,7 @@ export default function MasterUnitPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
           <input
             className="input pl-9 w-full text-sm font-mono"
-            placeholder="VIN / unit / serial / model / cabang..."
+            placeholder="VLGE… · E6210F 610003 · 610003 · cabang…"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value)
@@ -260,7 +284,7 @@ export default function MasterUnitPage() {
                     <thead className="sticky top-0 bg-surface-950 z-10">
                       <tr className="border-b border-surface-800 text-xs text-surface-400 text-left">
                         <th className="px-3 py-3">VIN / Unit</th>
-                        <th className="px-3 py-3">Model</th>
+                        <th className="px-3 py-3">Model · SN</th>
                         <th className="px-3 py-3">Cabang</th>
                         <th className="px-3 py-3">Sumber</th>
                       </tr>
@@ -283,10 +307,16 @@ export default function MasterUnitPage() {
                                 {r.customer || '—'}
                               </div>
                             </td>
-                            <td className="px-3 py-2.5 text-xs font-semibold">{r.model || '—'}</td>
+                            <td className="px-3 py-2.5 text-xs">
+                              <span className="font-semibold">{r.model || '—'}</span>
+                              <span className="text-surface-500 font-mono ml-1">{r.sn6 || r.serial_number || ''}</span>
+                            </td>
                             <td className="px-3 py-2.5 text-xs">{r.under_cabang || '—'}</td>
                             <td className="px-3 py-2.5">
                               <div className="flex flex-wrap gap-0.5">
+                                {r.is_sdlg_canonical && (
+                                  <span className="text-[9px] px-1 rounded bg-sky-500/20 text-sky-300">SDLG</span>
+                                )}
                                 {r.src_oldp && (
                                   <span className="text-[9px] px-1 rounded bg-blue-500/20 text-blue-300">OLDP</span>
                                 )}
@@ -310,7 +340,7 @@ export default function MasterUnitPage() {
                       {!rows.length && (
                         <tr>
                           <td colSpan={4} className="px-3 py-10 text-center text-surface-500 text-sm">
-                            Tidak ada unit. Coba VIN lain.
+                            Tidak ada unit. Coba VIN, model+SN, atau 6 digit serial.
                           </td>
                         </tr>
                       )}
@@ -368,12 +398,15 @@ export default function MasterUnitPage() {
                       <p className="font-mono text-sm text-accent font-bold">{master.vin || '—'}</p>
                       <p className="text-lg font-semibold text-surface-50">{master.unit_number}</p>
                       <p className="text-xs text-surface-400">
-                        {master.model} · {master.group_type || '—'} · SN {master.serial_number || '—'}
+                        {master.model} · SN {master.sn6 || master.serial_number || '—'}
+                        {master.match_key ? (
+                          <span className="text-surface-600 font-mono ml-2">{master.match_key}</span>
+                        ) : null}
                       </p>
                       {Array.isArray(master.alias_vins) && master.alias_vins.length > 0 && (
                         <p className="text-[10px] text-amber-400/80 mt-1 flex items-center gap-1">
                           <Link2 className="w-3 h-3" />
-                          Alias typo: {master.alias_vins.join(', ')}
+                          Alias: {master.alias_vins.join(', ')}
                         </p>
                       )}
                     </div>
@@ -387,7 +420,10 @@ export default function MasterUnitPage() {
                       >
                         {master.master_stage}
                       </span>
-                      <p className="text-[10px] text-surface-500 mt-1">{master.unit_status}</p>
+                      <p className="text-[10px] text-surface-500 mt-1">
+                        {master.is_sdlg_canonical ? 'SDLG canonical · ' : ''}
+                        {master.unit_status}
+                      </p>
                     </div>
                   </div>
 
@@ -530,7 +566,7 @@ export default function MasterUnitPage() {
 
                 <p className="text-[10px] text-surface-600 flex items-center gap-1">
                   <Database className="w-3 h-3" />
-                  Sumber: v_unit_master + vin_alias · acuan VIN = OLDP/CRM (SDLG)
+                  match_key = model|sn6 · resolve: VIN SDLG → alias → model+serial
                 </p>
               </>
             )}
@@ -541,7 +577,8 @@ export default function MasterUnitPage() {
       {!selectedUnitId && !selectedVin && !listLoading && rows.length > 0 && (
         <p className="text-xs text-surface-500 flex items-center gap-1.5">
           <ClipboardList className="w-3.5 h-3.5" />
-          Klik baris unit untuk membuka detail semua sumber data.
+          Klik baris unit untuk detail. Cari juga dengan <span className="font-mono">610003</span> atau{' '}
+          <span className="font-mono">E6210F 610003</span>.
         </p>
       )}
     </div>
