@@ -67,9 +67,24 @@ export type UnitMaster = {
   is_sdlg_canonical: boolean | null
   master_stage: string | null
   alias_vins: string[] | null
+  // Stock / MS from BL
+  stock_bl_date: string | null
+  stock_end_date: string | null
+  stock_status_label: string | null
+  stock_age_months: number | null
+  stock_age_days: number | null
+  stock_duration_text: string | null
+  ms1_est_date: string | null
+  ms2_est_date: string | null
+  ms3_est_date: string | null
+  ms4_est_date: string | null
+  ms_required_count: number | null
+  ms_done_count_oldp: number | null
+  ms_gap_count: number | null
+  ms_status: string | null
 }
 
-export type MasterFilter = 'all' | 'sdlg' | 'complete' | 'gap_ops'
+export type MasterFilter = 'all' | 'sdlg' | 'complete' | 'gap_ops' | 'ms_gap'
 
 export function parseMasterSearch(raw: string): {
   text: string
@@ -88,7 +103,6 @@ export function parseMasterSearch(raw: string): {
   return { text, sn6, model }
 }
 
-/** Resolve VIN/model/serial → unit_id via DB hierarchy */
 export async function resolveUnitId(
   vin?: string | null,
   model?: string | null,
@@ -106,7 +120,6 @@ export async function resolveUnitId(
   return (data as string) || null
 }
 
-/** Re-detect aliases + relink ops (authenticated) */
 export async function maintainUnitMaster(): Promise<Record<string, unknown> | null> {
   const { data, error } = await supabase.rpc('maintain_unit_master')
   if (error) throw error
