@@ -33,6 +33,10 @@ jobs:
           VITE_SUPABASE_URL: https://xluokufxwxurjykfrjav.supabase.co
           VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsdW9rdWZ4d3h1cmp5a2ZyamF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4NzY5NDYsImV4cCI6MjEwNzQ1Mjk0Nn0.TtOVcTu2GubH4UNmCNr6uczTqGPmlFqEMm6B5PxNc88
 
+      # GitHub Pages: deep links (/penjualan, dll) harus fallback ke index.html
+      - name: SPA 404 fallback
+        run: cp dist/index.html dist/404.html
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
