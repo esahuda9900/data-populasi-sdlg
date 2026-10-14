@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   XCircle,
   Package,
-  FileText,
   ShoppingCart,
   Ship,
   Wrench,
@@ -79,7 +78,6 @@ export default function MasterUnitPage() {
   const total = listData?.total ?? 0
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
-  // Detail: parallel queries when a unit is selected
   const detailEnabled = !!selectedUnitId || !!selectedVin
 
   const { data: master, isLoading: masterLoading } = useQuery({
@@ -155,19 +153,6 @@ export default function MasterUnitPage() {
     },
   })
 
-  const { data: docs = [] } = useQuery({
-    queryKey: ['master_docs', selectedUnitId],
-    enabled: !!selectedUnitId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('unit_documents')
-        .select('status, file_name, uploaded_at, document_types(code, name)')
-        .eq('unit_id', selectedUnitId!)
-      if (error) throw error
-      return data || []
-    },
-  })
-
   const openUnit = (r: any) => {
     setSelectedUnitId(r.unit_id)
     setSelectedVin(r.vin || null)
@@ -184,7 +169,7 @@ export default function MasterUnitPage() {
         <div>
           <h2 className="text-xl font-bold text-surface-50">Master Data Unit</h2>
           <p className="text-sm text-surface-400">
-            Cari VIN / unit → semua sumber data yang terhubung (OLDP, jual, SJU, WO, CRM, proses, dokumen)
+            Cari VIN / unit → semua sumber data (OLDP, jual, SJU, WO, CRM, proses)
           </p>
         </div>
         <button
@@ -257,11 +242,21 @@ export default function MasterUnitPage() {
                             <td className="px-3 py-2.5 text-xs">{r.under_cabang || '—'}</td>
                             <td className="px-3 py-2.5">
                               <div className="flex flex-wrap gap-0.5">
-                                {r.src_oldp && <span className="text-[9px] px-1 rounded bg-blue-500/20 text-blue-300">OLDP</span>}
-                                {r.src_sales && <span className="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-300">Jual</span>}
-                                {r.src_sju && <span className="text-[9px] px-1 rounded bg-cyan-500/20 text-cyan-300">SJU</span>}
-                                {r.src_wo && <span className="text-[9px] px-1 rounded bg-violet-500/20 text-violet-300">WO</span>}
-                                {r.src_crm && <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-300">CRM</span>}
+                                {r.src_oldp && (
+                                  <span className="text-[9px] px-1 rounded bg-blue-500/20 text-blue-300">OLDP</span>
+                                )}
+                                {r.src_sales && (
+                                  <span className="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-300">Jual</span>
+                                )}
+                                {r.src_sju && (
+                                  <span className="text-[9px] px-1 rounded bg-cyan-500/20 text-cyan-300">SJU</span>
+                                )}
+                                {r.src_wo && (
+                                  <span className="text-[9px] px-1 rounded bg-violet-500/20 text-violet-300">WO</span>
+                                )}
+                                {r.src_crm && (
+                                  <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-300">CRM</span>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -353,7 +348,6 @@ export default function MasterUnitPage() {
                     <Flag on={!!master.src_wo_comm} label="WO Comm" />
                     <Flag on={!!master.src_crm} label="CRM" />
                     <Flag on={!!master.src_process} label="Process" />
-                    <Flag on={(master.doc_uploaded_count || 0) > 0} label={`Dok ${master.doc_uploaded_count}/${master.doc_count}`} />
                   </div>
 
                   <div className="grid sm:grid-cols-2 gap-x-6 gap-y-0 pt-1">
@@ -372,11 +366,13 @@ export default function MasterUnitPage() {
                     <Row k="Arrival check" v={master.arrival_check} />
                     <Row k="PDI check" v={master.pdi_check} />
                     <Row k="COMM check" v={master.comm_check} />
-                    <Row k="MS1/2/3" v={`${master.ms_check_1 || '—'} / ${master.ms_check_2 || '—'} / ${master.ms_check_3 || '—'}`} />
+                    <Row
+                      k="MS1/2/3"
+                      v={`${master.ms_check_1 || '—'} / ${master.ms_check_2 || '—'} / ${master.ms_check_3 || '—'}`}
+                    />
                   </div>
                 </div>
 
-                {/* Penjualan */}
                 <section className="card p-4">
                   <h4 className="text-xs font-bold text-surface-300 uppercase flex items-center gap-1.5 mb-2">
                     <ShoppingCart className="w-3.5 h-3.5 text-emerald-400" /> Penjualan ({sales.length})
@@ -386,7 +382,10 @@ export default function MasterUnitPage() {
                   ) : (
                     <div className="space-y-2">
                       {sales.map((s: any) => (
-                        <div key={s.id} className="text-xs grid sm:grid-cols-2 gap-x-4 border border-surface-800 rounded-lg p-2">
+                        <div
+                          key={s.id}
+                          className="text-xs grid sm:grid-cols-2 gap-x-4 border border-surface-800 rounded-lg p-2"
+                        >
                           <Row k="Invoice" v={s.invoice_sales} />
                           <Row k="Salesman" v={s.salesman} />
                           <Row k="Cabang jual" v={s.branch_sales} />
@@ -399,7 +398,6 @@ export default function MasterUnitPage() {
                   )}
                 </section>
 
-                {/* SJU */}
                 <section className="card p-4">
                   <h4 className="text-xs font-bold text-surface-300 uppercase flex items-center gap-1.5 mb-2">
                     <Ship className="w-3.5 h-3.5 text-cyan-400" /> Keberangkatan SJU ({sju.length})
@@ -409,7 +407,10 @@ export default function MasterUnitPage() {
                   ) : (
                     <div className="space-y-2">
                       {sju.map((d: any) => (
-                        <div key={d.id} className="text-xs grid sm:grid-cols-2 gap-x-4 border border-surface-800 rounded-lg p-2">
+                        <div
+                          key={d.id}
+                          className="text-xs grid sm:grid-cols-2 gap-x-4 border border-surface-800 rounded-lg p-2"
+                        >
                           <Row k="Pickup" v={d.pick_up_point} />
                           <Row k="Delivery" v={d.delivery_point} />
                           <Row k="Berangkat" v={d.berangkat_date} />
@@ -422,7 +423,6 @@ export default function MasterUnitPage() {
                   )}
                 </section>
 
-                {/* WO */}
                 <section className="card p-4">
                   <h4 className="text-xs font-bold text-surface-300 uppercase flex items-center gap-1.5 mb-2">
                     <Wrench className="w-3.5 h-3.5 text-violet-400" /> Work Orders ({wos.length})
@@ -450,7 +450,6 @@ export default function MasterUnitPage() {
                   )}
                 </section>
 
-                {/* CRM */}
                 <section className="card p-4">
                   <h4 className="text-xs font-bold text-surface-300 uppercase flex items-center gap-1.5 mb-2">
                     <Users className="w-3.5 h-3.5 text-amber-400" /> CRM ({crm.length})
@@ -460,7 +459,10 @@ export default function MasterUnitPage() {
                   ) : (
                     <div className="space-y-2">
                       {crm.map((c: any) => (
-                        <div key={c.id} className="text-xs grid sm:grid-cols-2 gap-x-4 border border-surface-800 rounded-lg p-2">
+                        <div
+                          key={c.id}
+                          className="text-xs grid sm:grid-cols-2 gap-x-4 border border-surface-800 rounded-lg p-2"
+                        >
                           <Row k="Dealer" v={c.dealer} />
                           <Row k="End customer" v={c.end_customer_name} />
                           <Row k="Product" v={`${c.product_type || ''} ${c.product_model || ''}`.trim()} />
@@ -475,36 +477,9 @@ export default function MasterUnitPage() {
                   )}
                 </section>
 
-                {/* Docs */}
-                <section className="card p-4">
-                  <h4 className="text-xs font-bold text-surface-300 uppercase flex items-center gap-1.5 mb-2">
-                    <FileText className="w-3.5 h-3.5 text-rose-400" /> Dokumen ({docs.length})
-                  </h4>
-                  {docs.length === 0 ? (
-                    <p className="text-xs text-surface-500">Tidak ada checklist dokumen</p>
-                  ) : (
-                    <ul className="space-y-1">
-                      {docs.map((d: any, i: number) => (
-                        <li key={i} className="flex justify-between text-xs py-1 border-b border-surface-800/40">
-                          <span>
-                            {(d.document_types as any)?.name || (d.document_types as any)?.code || 'Doc'}
-                          </span>
-                          <span
-                            className={
-                              d.status === 'uploaded' ? 'text-emerald-400' : 'text-surface-500'
-                            }
-                          >
-                            {d.status}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </section>
-
                 <p className="text-[10px] text-surface-600 flex items-center gap-1">
                   <Database className="w-3 h-3" />
-                  Sumber: v_unit_master + unit_sales / unit_deliveries / work_orders / crm_records / unit_documents
+                  Sumber: v_unit_master + unit_sales / unit_deliveries / work_orders / crm_records
                 </p>
               </>
             )}
