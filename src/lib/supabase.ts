@@ -156,6 +156,28 @@ export type CrmRecord = {
   created_at?: string
 }
 
+export type UnitOldpFlags = {
+  vin: string
+  bl_date: string | null
+  arrival_date: string | null
+  pdi_date: string | null
+  sales_date: string | null
+  ms1_date: string | null
+  ms2_date: string | null
+  ms3_date: string | null
+  has_sales: boolean | null
+  has_pdi: boolean | null
+  has_arrival: boolean | null
+  has_ms1: boolean | null
+  has_ms2: boolean | null
+  has_ms3: boolean | null
+  refreshed_at: string | null
+  // optional raw OLDP fields when joined from staging
+  country_name?: string | null
+  dealer_name?: string | null
+  model_code?: string | null
+}
+
 export type AuditLog = {
   id: string
   table_name: string

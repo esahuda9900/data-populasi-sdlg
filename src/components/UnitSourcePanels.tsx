@@ -10,8 +10,11 @@ import {
   Calendar,
   Hash,
   AlertCircle,
+  Factory,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react'
-import type { UnitSales, UnitDelivery, WorkOrder, CrmRecord } from '../lib/supabase'
+import type { UnitSales, UnitDelivery, WorkOrder, CrmRecord, UnitOldpFlags } from '../lib/supabase'
 
 /** Label–value row used in multi-source detail panels */
 export function KV({ k, v, mono }: { k: string; v: React.ReactNode; mono?: boolean }) {
@@ -254,6 +257,80 @@ export function CrmPanel({ rows }: { rows: CrmRecord[] }) {
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+export function OldpPanel({ row, matchedVin }: { row: UnitOldpFlags | null; matchedVin?: string | null }) {
+  if (!row) return <EmptySource label="OLDP / factory" />
+
+  const Flag = ({ ok, label }: { ok: boolean | null | undefined; label: string }) => (
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-semibold ${
+        ok
+          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+          : 'bg-surface-800 text-surface-500 border-surface-700'
+      }`}
+    >
+      {ok ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+      {label}
+    </span>
+  )
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] text-rose-300/80 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
+        Sumber <strong>SDLG OLDP (factory)</strong>. Sales date di sini = tanggal penjualan dari factory.
+        Jika kosong, operator bisa pakai <strong>WO start date</strong> sebagai acuan.
+        {matchedVin && matchedVin !== row.vin && (
+          <span className="block mt-1 text-amber-300">
+            Match via VIN alternatif: master <span className="font-mono">{matchedVin}</span> → OLDP{' '}
+            <span className="font-mono">{row.vin}</span>
+          </span>
+        )}
+      </p>
+      <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-3.5 space-y-0.5">
+        <div className="flex flex-wrap items-center gap-2 mb-2">
+          <Factory className="w-3.5 h-3.5 text-rose-400" />
+          <span className="text-xs font-bold text-rose-300 font-mono">{row.vin}</span>
+          {row.model_code && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/25">
+              {row.model_code}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          <Flag ok={row.has_arrival} label="Arrival" />
+          <Flag ok={row.has_ms1} label="MS1" />
+          <Flag ok={row.has_ms2} label="MS2" />
+          <Flag ok={row.has_ms3} label="MS3" />
+          <Flag ok={row.has_pdi} label="PDI" />
+          <Flag ok={row.has_sales} label="Sales" />
+        </div>
+        <div className="grid sm:grid-cols-2 gap-x-4">
+          <KV k="Country" v={row.country_name} />
+          <KV k="Dealer" v={row.dealer_name} />
+          <KV k="Model code" v={row.model_code} />
+          <KV k="VIN (OLDP)" v={row.vin} mono />
+          <KV k="BL ship-out / BL date" v={row.bl_date} />
+          <KV k="Arrival date" v={row.arrival_date} />
+          <KV k="MS1 date" v={row.ms1_date} />
+          <KV k="MS2 date" v={row.ms2_date} />
+          <KV k="MS3 date" v={row.ms3_date} />
+          <KV k="PDI date" v={row.pdi_date} />
+          <KV
+            k="Sales date (factory)"
+            v={
+              row.sales_date ? (
+                <span className="font-semibold text-rose-200">{row.sales_date}</span>
+              ) : (
+                <span className="text-amber-400">KOSONG — saran: pakai WO start date</span>
+              )
+            }
+          />
+          <KV k="Refreshed at" v={row.refreshed_at ? String(row.refreshed_at).slice(0, 19) : null} mono />
+        </div>
+      </div>
     </div>
   )
 }
