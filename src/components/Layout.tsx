@@ -6,7 +6,6 @@ import {
   Truck,
   FileText,
   LogOut,
-  ClipboardList,
   Menu,
   X,
   Wifi,
@@ -37,10 +36,6 @@ const navSections = [
       { to: '/keberangkatan', label: 'Keberangkatan (SJU)', icon: Ship },
       { to: '/commissioning', label: 'Commissioning (WO)', icon: Wrench },
     ],
-  },
-  {
-    title: 'Lainnya',
-    items: [{ to: '/process', label: 'Process (legacy)', icon: ClipboardList }],
   },
 ]
 

@@ -11,7 +11,6 @@ const Login = lazy(() => import('./pages/Login'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Units = lazy(() => import('./pages/Units'))
 const Documents = lazy(() => import('./pages/Documents'))
-const Process = lazy(() => import('./pages/Process'))
 const Sales = lazy(() => import('./pages/Sales'))
 const Departures = lazy(() => import('./pages/Departures'))
 const Commissioning = lazy(() => import('./pages/Commissioning'))
@@ -77,8 +76,9 @@ function App() {
               <Route path="/penjualan" element={<Sales />} />
               <Route path="/keberangkatan" element={<Departures />} />
               <Route path="/commissioning" element={<Commissioning />} />
-              <Route path="/process" element={<Process />} />
               <Route path="/documents" element={<Documents />} />
+              {/* Legacy Process page removed — redirect to Antrian */}
+              <Route path="/process" element={<Navigate to="/" replace />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
