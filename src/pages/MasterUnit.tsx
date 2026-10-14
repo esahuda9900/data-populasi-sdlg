@@ -21,6 +21,7 @@ import {
   ClipboardList,
   Link2,
   Shield,
+  Factory,
 } from 'lucide-react'
 import { TableSkeleton, Skeleton } from '../components/Skeleton'
 import { useDebounce } from '../lib/useDebounce'
@@ -386,9 +387,17 @@ export default function MasterUnitPage() {
                       }`}>{master.master_stage}</span>
                     </div>
                   </div>
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    <Flag on={!!master.src_oldp} label="OLDP" />
+                    <Flag on={!!master.src_crm} label="CRM" />
+                    <Flag on={!!master.src_sales} label="Sales" />
+                    <Flag on={!!master.src_sju} label="SJU" />
+                    <Flag on={!!master.src_wo} label="WO" />
+                    <Flag on={!!master.src_process} label="Proses" />
+                  </div>
                   <div className="grid sm:grid-cols-2 gap-x-6 pt-1">
                     <Row k="Cabang" v={master.under_cabang} />
-                    <Row k="Customer" v={master.customer} />
+                    <Row k="Customer" v={master.customer || master.crm_end_customer} />
                     <Row
                       k="Marketing"
                       v={
@@ -405,6 +414,8 @@ export default function MasterUnitPage() {
                       }
                     />
                     <Row k="Ops" v={`Jual ${master.sales_count ?? 0} · SJU ${master.sju_count ?? 0} · WO ${master.wo_count ?? 0}`} />
+                    <Row k="OLDP sales date" v={master.oldp_sales_date || (master.src_oldp ? 'KOSONG' : '—')} />
+                    <Row k="OLDP model / dealer" v={[master.oldp_model_code, master.oldp_dealer, master.oldp_country].filter(Boolean).join(' · ') || null} />
                   </div>
                 </div>
 
@@ -428,6 +439,61 @@ export default function MasterUnitPage() {
                     <Row k="MS wajib" v={master.ms_required_count != null ? `${master.ms_required_count}×` : '—'} />
                     <Row k="MS status" v={master.ms_status} />
                   </div>
+                </section>
+
+                <section className="card p-4 border-rose-500/25 bg-rose-500/5">
+                  <h4 className="text-xs font-bold text-rose-300 uppercase flex items-center gap-1.5 mb-2">
+                    <Factory className="w-3.5 h-3.5" /> SDLG OLDP (Factory)
+                    {master.src_oldp ? (
+                      <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">ADA</span>
+                    ) : (
+                      <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-surface-800 text-surface-500 border border-surface-700">TIDAK ADA</span>
+                    )}
+                  </h4>
+                  <p className="text-[10px] text-surface-500 mb-2">
+                    Data factory SDLG. Sales date di sini = tanggal jual dari OLDP.
+                    Jika kosong, operator bisa pakai tanggal WO sebagai acuan.
+                  </p>
+                  {master.src_oldp ? (
+                    <>
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        <Flag on={!!master.has_oldp_arrival} label="Arrival" />
+                        <Flag on={!!master.oldp_ms1_date} label="MS1" />
+                        <Flag on={!!master.oldp_ms2_date} label="MS2" />
+                        <Flag on={!!master.oldp_ms3_date} label="MS3" />
+                        <Flag on={!!master.has_oldp_pdi} label="PDI" />
+                        <Flag on={!!master.has_oldp_sales} label="Sales" />
+                      </div>
+                      <div className="grid sm:grid-cols-2 gap-x-6">
+                        <Row k="Country" v={master.oldp_country} />
+                        <Row k="Dealer" v={master.oldp_dealer} />
+                        <Row k="Model code" v={master.oldp_model_code} />
+                        <Row k="VIN" v={master.vin} />
+                        <Row k="BL ship-out" v={master.oldp_bl_date || master.bl_date} />
+                        <Row k="Arrival date" v={master.oldp_arrival_date} />
+                        <Row k="MS1 date" v={master.oldp_ms1_date} />
+                        <Row k="MS2 date" v={master.oldp_ms2_date} />
+                        <Row k="MS3 date" v={master.oldp_ms3_date} />
+                        <Row k="PDI date" v={master.oldp_pdi_date} />
+                        <Row
+                          k="Sales date (factory)"
+                          v={
+                            master.oldp_sales_date ? (
+                              <span className="font-semibold text-rose-200">{master.oldp_sales_date}</span>
+                            ) : (
+                              <span className="text-amber-400">KOSONG — saran: pakai WO start date</span>
+                            )
+                          }
+                        />
+                        <Row k="Complete OLDP" v={master.is_complete_oldp ? 'Ya' : 'Belum'} />
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-xs text-surface-500 py-4 text-center border border-dashed border-surface-700 rounded-lg">
+                      Unit ini belum terhubung ke data OLDP factory (src_oldp = false).
+                      Cek VIN / jalankan Maintain DB.
+                    </p>
+                  )}
                 </section>
 
                 <section className="card p-4">
@@ -467,7 +533,7 @@ export default function MasterUnitPage() {
                 </section>
 
                 <p className="text-[10px] text-surface-600 flex items-center gap-1">
-                  <Database className="w-3 h-3" /> stock age & MS dari BL · multi-sumber Sales/SJU/WO/CRM
+                  <Database className="w-3 h-3" /> stock age & MS dari BL · multi-sumber OLDP / CRM / Sales / SJU / WO
                 </p>
               </>
             )}
