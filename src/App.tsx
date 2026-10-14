@@ -7,20 +7,19 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { NetworkStatus } from './components/NetworkStatus'
 import { Skeleton } from './components/Skeleton'
 
-// Route-level Code Splitting (Lazy Loading)
 const Login = lazy(() => import('./pages/Login'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Units = lazy(() => import('./pages/Units'))
 const Documents = lazy(() => import('./pages/Documents'))
 const Process = lazy(() => import('./pages/Process'))
+const Sales = lazy(() => import('./pages/Sales'))
+const Departures = lazy(() => import('./pages/Departures'))
+const Commissioning = lazy(() => import('./pages/Commissioning'))
 
 function RouteFallback() {
   return (
     <div className="p-6 space-y-6 animate-pulse">
-      <div className="flex justify-between items-center">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-8 w-28" />
-      </div>
+      <Skeleton className="h-8 w-48" />
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <Skeleton key={i} className="h-28 w-full" />
@@ -40,13 +39,11 @@ function App() {
       setSession(session)
       setLoading(false)
     })
-
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
     })
-
     return () => subscription.unsubscribe()
   }, [])
 
@@ -77,6 +74,9 @@ function App() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/units" element={<Units />} />
+              <Route path="/penjualan" element={<Sales />} />
+              <Route path="/keberangkatan" element={<Departures />} />
+              <Route path="/commissioning" element={<Commissioning />} />
               <Route path="/process" element={<Process />} />
               <Route path="/documents" element={<Documents />} />
               <Route path="*" element={<Navigate to="/" replace />} />
