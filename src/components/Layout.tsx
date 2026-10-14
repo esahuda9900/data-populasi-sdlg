@@ -2,9 +2,6 @@ import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  LayoutDashboard,
-  Truck,
-  FileText,
   LogOut,
   Menu,
   X,
@@ -21,14 +18,6 @@ import { cn } from '../lib/utils'
 import AiUpdateModal from './AiUpdateModal'
 
 const navSections = [
-  {
-    title: 'Proses',
-    items: [
-      { to: '/', label: 'Antrian Proses', icon: LayoutDashboard },
-      { to: '/units', label: 'Unit', icon: Truck },
-      { to: '/documents', label: 'Dokumen', icon: FileText },
-    ],
-  },
   {
     title: 'Data sumber',
     items: [
@@ -73,7 +62,7 @@ export default function Layout({
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    navigate('/')
+    navigate('/penjualan')
   }
 
   const userEmail = session?.user?.email || 'operator@sdlg.id'
@@ -90,7 +79,6 @@ export default function Layout({
               <NavLink
                 key={item.to}
                 to={item.to}
-                end={item.to === '/'}
                 onClick={onNavigate}
                 className={({ isActive }) =>
                   cn(
@@ -120,7 +108,7 @@ export default function Layout({
           </div>
           <div>
             <h1 className="text-sm font-semibold tracking-tight text-surface-50">SDLG Monitor</h1>
-            <p className="text-[10px] text-surface-400">Antrian & Data Sumber</p>
+            <p className="text-[10px] text-surface-400">Data Sumber</p>
           </div>
         </div>
         <button
@@ -175,7 +163,7 @@ export default function Layout({
           </div>
           <div>
             <h1 className="text-base font-semibold text-surface-50">SDLG Monitor</h1>
-            <p className="text-xs text-surface-400">Antrian & Data Sumber</p>
+            <p className="text-xs text-surface-400">Data Sumber</p>
           </div>
         </div>
 
