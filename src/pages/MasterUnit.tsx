@@ -45,7 +45,6 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
   )
 }
 
-/** Parse free-text: full VIN, 6-digit SN, or "E6210F 610003" / "E6210F|610003" */
 function parseSearch(raw: string): { text: string; sn6: string | null; model: string | null } {
   const text = raw.trim()
   if (!text) return { text: '', sn6: null, model: null }
@@ -111,13 +110,11 @@ export default function MasterUnitPage() {
       const parsed = parseSearch(effectiveSearch)
       if (parsed.text) {
         const s = parsed.text
-        // Prefer exact model+sn6 when both present
         if (parsed.model && parsed.sn6) {
           q = q.or(
             `match_key.eq.${parsed.model}|${parsed.sn6},vin.ilike.%${s}%,unit_number.ilike.%${s}%,sn6.eq.${parsed.sn6},serial_number.ilike.%${parsed.sn6}%,model.ilike.%${parsed.model}%`
           )
         } else if (/^\d{5,7}$/.test(s) && parsed.sn6) {
-          // pure serial search
           q = q.or(`sn6.eq.${parsed.sn6},serial_number.eq.${parsed.sn6},vin.ilike.%${parsed.sn6}%`)
         } else {
           q = q.or(
@@ -136,7 +133,6 @@ export default function MasterUnitPage() {
   const rows = listData?.rows || []
   const total = listData?.total ?? 0
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-
   const detailEnabled = !!selectedUnitId || !!selectedVin
 
   const { data: master, isLoading: masterLoading } = useQuery({
@@ -152,71 +148,37 @@ export default function MasterUnitPage() {
     },
   })
 
+  const loadByUnit = async (table: string, order?: string) => {
+    let q = supabase.from(table).select('*')
+    if (order) q = q.order(order, { ascending: false })
+    if (selectedUnitId && selectedVin) q = q.or(`unit_id.eq.${selectedUnitId},vin.eq.${selectedVin}`)
+    else if (selectedUnitId) q = q.eq('unit_id', selectedUnitId)
+    else q = q.eq('vin', selectedVin!)
+    const { data, error } = await q
+    if (error) throw error
+    return data || []
+  }
+
   const { data: sales = [] } = useQuery({
     queryKey: ['master_sales', selectedUnitId, selectedVin],
     enabled: detailEnabled,
-    queryFn: async () => {
-      let q = supabase.from('unit_sales').select('*')
-      if (selectedUnitId && selectedVin) {
-        q = q.or(`unit_id.eq.${selectedUnitId},vin.eq.${selectedVin}`)
-      } else if (selectedUnitId) q = q.eq('unit_id', selectedUnitId)
-      else q = q.eq('vin', selectedVin!)
-      const { data, error } = await q
-      if (error) throw error
-      return data || []
-    },
+    queryFn: () => loadByUnit('unit_sales'),
   })
-
   const { data: sju = [] } = useQuery({
     queryKey: ['master_sju', selectedUnitId, selectedVin],
     enabled: detailEnabled,
-    queryFn: async () => {
-      let q = supabase.from('unit_deliveries').select('*')
-      if (selectedUnitId && selectedVin) {
-        q = q.or(`unit_id.eq.${selectedUnitId},vin.eq.${selectedVin}`)
-      } else if (selectedUnitId) q = q.eq('unit_id', selectedUnitId)
-      else q = q.eq('vin', selectedVin!)
-      const { data, error } = await q
-      if (error) throw error
-      return data || []
-    },
+    queryFn: () => loadByUnit('unit_deliveries'),
   })
-
   const { data: wos = [] } = useQuery({
     queryKey: ['master_wo', selectedUnitId, selectedVin],
     enabled: detailEnabled,
-    queryFn: async () => {
-      let q = supabase.from('work_orders').select('*').order('start_date', { ascending: false })
-      if (selectedUnitId && selectedVin) {
-        q = q.or(`unit_id.eq.${selectedUnitId},vin.eq.${selectedVin}`)
-      } else if (selectedUnitId) q = q.eq('unit_id', selectedUnitId)
-      else q = q.eq('vin', selectedVin!)
-      const { data, error } = await q
-      if (error) throw error
-      return data || []
-    },
-  })
-
-  const { data: crm = [] } = useQuery({
-    queryKey: ['master_crm', selectedUnitId, selectedVin],
-    enabled: detailEnabled,
-    queryFn: async () => {
-      let q = supabase.from('crm_records').select('*')
-      if (selectedUnitId && selectedVin) {
-        q = q.or(`unit_id.eq.${selectedUnitId},vin.eq.${selectedVin}`)
-      } else if (selectedUnitId) q = q.eq('unit_id', selectedUnitId)
-      else q = q.eq('vin', selectedVin!)
-      const { data, error } = await q
-      if (error) throw error
-      return data || []
-    },
+    queryFn: () => loadByUnit('work_orders', 'start_date'),
   })
 
   const openUnit = (r: any) => {
     setSelectedUnitId(r.unit_id)
     setSelectedVin(r.vin || null)
   }
-
   const closeDetail = () => {
     setSelectedUnitId(null)
     setSelectedVin(null)
@@ -228,14 +190,10 @@ export default function MasterUnitPage() {
         <div>
           <h2 className="text-xl font-bold text-surface-50">Master Data Unit</h2>
           <p className="text-sm text-surface-400">
-            Cari VIN · model+serial 6 digit · SN saja. Acuan resmi = OLDP/CRM (SDLG).
+            Acuan resmi SDLG (OLDP + CRM). Cari VIN · model+SN · 6 digit serial.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => refetch()}
-          className="btn-secondary text-xs px-3 py-2 flex items-center gap-1.5"
-        >
+        <button type="button" onClick={() => refetch()} className="btn-secondary text-xs px-3 py-2 flex items-center gap-1.5">
           <RefreshCw className={`w-3.5 h-3.5 ${isRefetching ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </div>
@@ -247,17 +205,10 @@ export default function MasterUnitPage() {
             className="input pl-9 w-full text-sm font-mono"
             placeholder="VLGE… · E6210F 610003 · 610003 · cabang…"
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value)
-              setPage(0)
-            }}
+            onChange={(e) => { setSearch(e.target.value); setPage(0) }}
           />
           {search && (
-            <button
-              type="button"
-              className="absolute right-3 top-1/2 -translate-y-1/2"
-              onClick={() => setSearch('')}
-            >
+            <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2" onClick={() => setSearch('')}>
               <X className="w-3.5 h-3.5 text-surface-400" />
             </button>
           )}
@@ -265,7 +216,7 @@ export default function MasterUnitPage() {
         {resolvedFromAlias && aliasHit && (
           <p className="text-xs text-amber-400/90 flex items-center gap-1.5">
             <Link2 className="w-3.5 h-3.5" />
-            VIN typo <span className="font-mono">{resolvedFromAlias}</span> → kanonik SDLG{' '}
+            VIN typo <span className="font-mono">{resolvedFromAlias}</span> →{' '}
             <span className="font-mono text-accent">{aliasHit.canonical_vin}</span>
             <span className="text-surface-500">({aliasHit.reason})</span>
           </p>
@@ -296,42 +247,26 @@ export default function MasterUnitPage() {
                           <tr
                             key={r.unit_id}
                             onClick={() => openUnit(r)}
-                            className={`cursor-pointer transition-colors ${
-                              active ? 'bg-accent/10' : 'hover:bg-surface-800/40'
-                            }`}
+                            className={`cursor-pointer transition-colors ${active ? 'bg-accent/10' : 'hover:bg-surface-800/40'}`}
                           >
                             <td className="px-3 py-2.5">
                               <div className="font-mono text-[11px] text-accent">{r.vin || '—'}</div>
                               <div className="text-xs text-surface-200">{r.unit_number || '—'}</div>
-                              <div className="text-[10px] text-surface-500 truncate max-w-[140px]">
-                                {r.customer || '—'}
-                              </div>
+                              <div className="text-[10px] text-surface-500 truncate max-w-[140px]">{r.customer || r.crm_end_customer || '—'}</div>
                             </td>
                             <td className="px-3 py-2.5 text-xs">
                               <span className="font-semibold">{r.model || '—'}</span>
-                              <span className="text-surface-500 font-mono ml-1">{r.sn6 || r.serial_number || ''}</span>
+                              <span className="text-surface-500 font-mono ml-1">{r.sn6 || ''}</span>
                             </td>
                             <td className="px-3 py-2.5 text-xs">{r.under_cabang || '—'}</td>
                             <td className="px-3 py-2.5">
                               <div className="flex flex-wrap gap-0.5">
-                                {r.is_sdlg_canonical && (
-                                  <span className="text-[9px] px-1 rounded bg-sky-500/20 text-sky-300">SDLG</span>
-                                )}
-                                {r.src_oldp && (
-                                  <span className="text-[9px] px-1 rounded bg-blue-500/20 text-blue-300">OLDP</span>
-                                )}
-                                {r.src_sales && (
-                                  <span className="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-300">Jual</span>
-                                )}
-                                {r.src_sju && (
-                                  <span className="text-[9px] px-1 rounded bg-cyan-500/20 text-cyan-300">SJU</span>
-                                )}
-                                {r.src_wo && (
-                                  <span className="text-[9px] px-1 rounded bg-violet-500/20 text-violet-300">WO</span>
-                                )}
-                                {r.src_crm && (
-                                  <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-300">CRM</span>
-                                )}
+                                {r.is_sdlg_canonical && <span className="text-[9px] px-1 rounded bg-sky-500/20 text-sky-300">SDLG</span>}
+                                {r.src_oldp && <span className="text-[9px] px-1 rounded bg-blue-500/20 text-blue-300">OLDP</span>}
+                                {r.src_sales && <span className="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-300">Jual</span>}
+                                {r.src_sju && <span className="text-[9px] px-1 rounded bg-cyan-500/20 text-cyan-300">SJU</span>}
+                                {r.src_wo && <span className="text-[9px] px-1 rounded bg-violet-500/20 text-violet-300">WO</span>}
+                                {r.src_crm && <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-300">CRM</span>}
                               </div>
                             </td>
                           </tr>
@@ -351,25 +286,9 @@ export default function MasterUnitPage() {
               <div className="flex justify-between text-xs text-surface-400 mt-2">
                 <span>{total.toLocaleString('id-ID')} unit</span>
                 <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={page === 0}
-                    onClick={() => setPage((p) => p - 1)}
-                    className="btn-secondary px-3 py-1 disabled:opacity-40"
-                  >
-                    Prev
-                  </button>
-                  <span className="font-mono">
-                    {page + 1}/{pages}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={page >= pages - 1}
-                    onClick={() => setPage((p) => p + 1)}
-                    className="btn-secondary px-3 py-1 disabled:opacity-40"
-                  >
-                    Next
-                  </button>
+                  <button type="button" disabled={page === 0} onClick={() => setPage((p) => p - 1)} className="btn-secondary px-3 py-1 disabled:opacity-40">Prev</button>
+                  <span className="font-mono">{page + 1}/{pages}</span>
+                  <button type="button" disabled={page >= pages - 1} onClick={() => setPage((p) => p + 1)} className="btn-secondary px-3 py-1 disabled:opacity-40">Next</button>
                 </div>
               </div>
             </>
@@ -380,12 +299,9 @@ export default function MasterUnitPage() {
           <div className="lg:col-span-3 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-surface-100 flex items-center gap-2">
-                <Package className="w-4 h-4 text-accent" />
-                Detail unit
+                <Package className="w-4 h-4 text-accent" /> Detail unit
               </h3>
-              <button type="button" onClick={closeDetail} className="text-xs text-surface-400 hover:text-surface-200">
-                Tutup
-              </button>
+              <button type="button" onClick={closeDetail} className="text-xs text-surface-400 hover:text-surface-200">Tutup</button>
             </div>
 
             {masterLoading || !master ? (
@@ -399,80 +315,79 @@ export default function MasterUnitPage() {
                       <p className="text-lg font-semibold text-surface-50">{master.unit_number}</p>
                       <p className="text-xs text-surface-400">
                         {master.model} · SN {master.sn6 || master.serial_number || '—'}
-                        {master.match_key ? (
-                          <span className="text-surface-600 font-mono ml-2">{master.match_key}</span>
-                        ) : null}
+                        {master.match_key ? <span className="text-surface-600 font-mono ml-2">{master.match_key}</span> : null}
                       </p>
                       {Array.isArray(master.alias_vins) && master.alias_vins.length > 0 && (
                         <p className="text-[10px] text-amber-400/80 mt-1 flex items-center gap-1">
-                          <Link2 className="w-3 h-3" />
-                          Alias: {master.alias_vins.join(', ')}
+                          <Link2 className="w-3 h-3" /> Alias: {master.alias_vins.join(', ')}
                         </p>
                       )}
                     </div>
                     <div className="text-right">
-                      <span
-                        className={`inline-block px-2 py-1 rounded text-[10px] font-bold border ${
-                          master.is_complete_oldp
-                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                            : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                        }`}
-                      >
-                        {master.master_stage}
-                      </span>
+                      <span className={`inline-block px-2 py-1 rounded text-[10px] font-bold border ${
+                        master.is_complete_oldp || master.master_stage === 'COMPLETE_SOLD'
+                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                          : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                      }`}>{master.master_stage}</span>
                       <p className="text-[10px] text-surface-500 mt-1">
-                        {master.is_sdlg_canonical ? 'SDLG canonical · ' : ''}
-                        {master.unit_status}
+                        {master.is_sdlg_canonical ? 'SDLG canonical · ' : ''}{master.unit_status}
                       </p>
                     </div>
                   </div>
-
                   <div className="flex flex-wrap gap-1.5">
                     <Flag on={!!master.src_oldp} label="OLDP" />
+                    <Flag on={!!master.src_crm} label="CRM" />
                     <Flag on={!!master.src_sales} label="Penjualan" />
                     <Flag on={!!master.src_sju} label="SJU" />
-                    <Flag on={!!master.src_wo} label="WO AX" />
+                    <Flag on={!!master.src_wo} label="WO" />
                     <Flag on={!!master.src_wo_comm} label="WO Comm" />
-                    <Flag on={!!master.src_crm} label="CRM" />
-                    <Flag on={!!master.src_process} label="Process" />
                   </div>
-
-                  <div className="grid sm:grid-cols-2 gap-x-6 gap-y-0 pt-1">
+                  <div className="grid sm:grid-cols-2 gap-x-6 pt-1">
                     <Row k="Cabang" v={master.under_cabang} />
-                    <Row k="Customer" v={master.customer} />
-                    <Row k="Customer update" v={master.customer_update} />
+                    <Row k="Customer (master)" v={master.customer} />
                     <Row k="Lokasi" v={master.location} />
-                    <Row k="Year delivery" v={master.year_delivery} />
-                    <Row k="Stock status" v={master.stock_status} />
-                    <Row k="Marketing" v={master.marketing_status} />
+                    <Row k="Stock / marketing" v={`${master.stock_status || '—'} / ${master.marketing_status || '—'}`} />
                     <Row k="Device no" v={master.device_number} />
-                    <Row k="BL date" v={master.bl_date} />
-                    <Row k="OLDP sales_date" v={master.oldp_sales_date} />
-                    <Row k="OLDP arrival" v={master.oldp_arrival_date} />
-                    <Row k="OLDP PDI" v={master.oldp_pdi_date} />
-                    <Row k="Arrival check" v={master.arrival_check} />
-                    <Row k="PDI check" v={master.pdi_check} />
-                    <Row k="COMM check" v={master.comm_check} />
-                    <Row
-                      k="MS1/2/3"
-                      v={`${master.ms_check_1 || '—'} / ${master.ms_check_2 || '—'} / ${master.ms_check_3 || '—'}`}
-                    />
+                    <Row k="Ops counts" v={`Jual ${master.sales_count || 0} · SJU ${master.sju_count || 0} · WO ${master.wo_count || 0}`} />
                   </div>
                 </div>
 
+                <section className="card p-4 border-sky-500/20">
+                  <h4 className="text-xs font-bold text-sky-300 uppercase mb-2">SDLG · OLDP lifecycle</h4>
+                  <div className="grid sm:grid-cols-2 gap-x-6">
+                    <Row k="Country / dealer" v={`${master.oldp_country || '—'} / ${master.oldp_dealer || '—'}`} />
+                    <Row k="Model code" v={master.oldp_model_code || master.model} />
+                    <Row k="BL" v={master.oldp_bl_date || master.bl_date} />
+                    <Row k="Arrival" v={master.oldp_arrival_date} />
+                    <Row k="MS1 / MS2 / MS3" v={`${master.oldp_ms1_date || '—'} / ${master.oldp_ms2_date || '—'} / ${master.oldp_ms3_date || '—'}`} />
+                    <Row k="PDI" v={master.oldp_pdi_date} />
+                    <Row k="Sales date" v={master.oldp_sales_date} />
+                    <Row k="Complete (has sales)" v={master.has_oldp_sales ? 'YES' : 'NO'} />
+                  </div>
+                </section>
+
+                <section className="card p-4 border-amber-500/20">
+                  <h4 className="text-xs font-bold text-amber-300 uppercase mb-2">SDLG · CRM commercial</h4>
+                  <div className="grid sm:grid-cols-2 gap-x-6">
+                    <Row k="Dealer" v={master.crm_dealer} />
+                    <Row k="Product" v={`${master.crm_product_type || ''} ${master.crm_product_model || ''}`.trim() || '—'} />
+                    <Row k="Indent" v={master.crm_indent_no} />
+                    <Row k="End customer" v={master.crm_end_customer} />
+                    <Row k="File status" v={master.crm_file_status} />
+                    <Row k="Approval" v={master.crm_approval_status} />
+                    <Row k="Arrival CRM" v={master.crm_arrival_date} />
+                    <Row k="Region" v={master.crm_region || master.crm_area} />
+                  </div>
+                </section>
+
                 <section className="card p-4">
                   <h4 className="text-xs font-bold text-surface-300 uppercase flex items-center gap-1.5 mb-2">
-                    <ShoppingCart className="w-3.5 h-3.5 text-emerald-400" /> Penjualan ({sales.length})
+                    <ShoppingCart className="w-3.5 h-3.5 text-emerald-400" /> Penjualan lokal ({sales.length})
                   </h4>
-                  {sales.length === 0 ? (
-                    <p className="text-xs text-surface-500">Tidak ada data penjualan</p>
-                  ) : (
+                  {sales.length === 0 ? <p className="text-xs text-surface-500">Tidak ada</p> : (
                     <div className="space-y-2">
                       {sales.map((s: any) => (
-                        <div
-                          key={s.id}
-                          className="text-xs grid sm:grid-cols-2 gap-x-4 border border-surface-800 rounded-lg p-2"
-                        >
+                        <div key={s.id} className="text-xs grid sm:grid-cols-2 gap-x-4 border border-surface-800 rounded-lg p-2">
                           <Row k="Invoice" v={s.invoice_sales} />
                           <Row k="Salesman" v={s.salesman} />
                           <Row k="Cabang jual" v={s.branch_sales} />
@@ -487,17 +402,12 @@ export default function MasterUnitPage() {
 
                 <section className="card p-4">
                   <h4 className="text-xs font-bold text-surface-300 uppercase flex items-center gap-1.5 mb-2">
-                    <Ship className="w-3.5 h-3.5 text-cyan-400" /> Keberangkatan SJU ({sju.length})
+                    <Ship className="w-3.5 h-3.5 text-cyan-400" /> SJU lokal ({sju.length})
                   </h4>
-                  {sju.length === 0 ? (
-                    <p className="text-xs text-surface-500">Tidak ada data SJU</p>
-                  ) : (
+                  {sju.length === 0 ? <p className="text-xs text-surface-500">Tidak ada</p> : (
                     <div className="space-y-2">
                       {sju.map((d: any) => (
-                        <div
-                          key={d.id}
-                          className="text-xs grid sm:grid-cols-2 gap-x-4 border border-surface-800 rounded-lg p-2"
-                        >
+                        <div key={d.id} className="text-xs grid sm:grid-cols-2 gap-x-4 border border-surface-800 rounded-lg p-2">
                           <Row k="Pickup" v={d.pick_up_point} />
                           <Row k="Delivery" v={d.delivery_point} />
                           <Row k="Berangkat" v={d.berangkat_date} />
@@ -512,18 +422,13 @@ export default function MasterUnitPage() {
 
                 <section className="card p-4">
                   <h4 className="text-xs font-bold text-surface-300 uppercase flex items-center gap-1.5 mb-2">
-                    <Wrench className="w-3.5 h-3.5 text-violet-400" /> Work Orders ({wos.length})
+                    <Wrench className="w-3.5 h-3.5 text-violet-400" /> WO lokal ({wos.length})
                   </h4>
-                  {wos.length === 0 ? (
-                    <p className="text-xs text-surface-500">Tidak ada WO</p>
-                  ) : (
+                  {wos.length === 0 ? <p className="text-xs text-surface-500">Tidak ada</p> : (
                     <div className="space-y-2">
                       {wos.map((w: any) => (
                         <div key={w.id} className="text-xs border border-surface-800 rounded-lg p-2 space-y-1">
-                          <div className="flex flex-wrap gap-2 justify-between">
-                            <span className="font-mono text-accent">{w.case_number}</span>
-                            <span className="text-surface-400">{w.status}</span>
-                          </div>
+                          <div className="flex justify-between"><span className="font-mono text-accent">{w.case_number}</span><span>{w.status}</span></div>
                           <p className="text-surface-200">{w.description}</p>
                           <div className="grid sm:grid-cols-2 gap-x-4">
                             <Row k="Type / group" v={`${w.type || '—'} / ${w.case_group || '—'}`} />
@@ -537,36 +442,9 @@ export default function MasterUnitPage() {
                   )}
                 </section>
 
-                <section className="card p-4">
-                  <h4 className="text-xs font-bold text-surface-300 uppercase flex items-center gap-1.5 mb-2">
-                    <Users className="w-3.5 h-3.5 text-amber-400" /> CRM ({crm.length})
-                  </h4>
-                  {crm.length === 0 ? (
-                    <p className="text-xs text-surface-500">Tidak ada CRM</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {crm.map((c: any) => (
-                        <div
-                          key={c.id}
-                          className="text-xs grid sm:grid-cols-2 gap-x-4 border border-surface-800 rounded-lg p-2"
-                        >
-                          <Row k="Dealer" v={c.dealer} />
-                          <Row k="End customer" v={c.end_customer_name} />
-                          <Row k="Product" v={`${c.product_type || ''} ${c.product_model || ''}`.trim()} />
-                          <Row k="Indent" v={c.indent_no} />
-                          <Row k="Approval" v={c.approval_status} />
-                          <Row k="File status" v={c.file_status} />
-                          <Row k="Arrival CRM" v={c.arrival_date} />
-                          <Row k="Region" v={c.region} />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
-
                 <p className="text-[10px] text-surface-600 flex items-center gap-1">
                   <Database className="w-3 h-3" />
-                  match_key = model|sn6 · resolve: VIN SDLG → alias → model+serial
+                  SDLG = OLDP+CRM · ops = jual/SJU/WO · match: VIN → alias → model|sn6
                 </p>
               </>
             )}
@@ -577,8 +455,7 @@ export default function MasterUnitPage() {
       {!selectedUnitId && !selectedVin && !listLoading && rows.length > 0 && (
         <p className="text-xs text-surface-500 flex items-center gap-1.5">
           <ClipboardList className="w-3.5 h-3.5" />
-          Klik baris unit untuk detail. Cari juga dengan <span className="font-mono">610003</span> atau{' '}
-          <span className="font-mono">E6210F 610003</span>.
+          Klik unit. Cari juga <span className="font-mono">610003</span> atau <span className="font-mono">E6210F 610003</span>.
         </p>
       )}
     </div>
