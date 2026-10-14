@@ -32,6 +32,9 @@ export type UnitMaster = {
   has_oldp_sales: boolean | null
   has_oldp_pdi: boolean | null
   has_oldp_arrival: boolean | null
+  has_oldp_ms1: boolean | null
+  has_oldp_ms2: boolean | null
+  has_oldp_ms3: boolean | null
   oldp_country: string | null
   oldp_dealer: string | null
   oldp_model_code: string | null
