@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import {
@@ -14,6 +14,7 @@ import {
   Database,
   ClipboardList,
   Users,
+  Link2,
 } from 'lucide-react'
 import { TableSkeleton, Skeleton } from '../components/Skeleton'
 import { useDebounce } from '../lib/useDebounce'
@@ -50,9 +51,43 @@ export default function MasterUnitPage() {
   const [page, setPage] = useState(0)
   const [selectedVin, setSelectedVin] = useState<string | null>(null)
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
+  const [resolvedFromAlias, setResolvedFromAlias] = useState<string | null>(null)
+
+  // Resolve typo VIN → canonical (SDLG)
+  const { data: aliasHit } = useQuery({
+    queryKey: ['vin_alias_resolve', debounced],
+    enabled: debounced.trim().length >= 8,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const s = debounced.trim().toUpperCase()
+      const { data } = await supabase
+        .from('vin_alias')
+        .select('alias_vin, canonical_vin, reason')
+        .or(`alias_vin.eq.${s},canonical_vin.eq.${s}`)
+        .maybeSingle()
+      return data
+    },
+  })
+
+  const effectiveSearch =
+    aliasHit?.alias_vin &&
+    debounced.trim().toUpperCase() === aliasHit.alias_vin.toUpperCase()
+      ? aliasHit.canonical_vin
+      : debounced
+
+  useEffect(() => {
+    if (
+      aliasHit?.alias_vin &&
+      debounced.trim().toUpperCase() === aliasHit.alias_vin.toUpperCase()
+    ) {
+      setResolvedFromAlias(aliasHit.alias_vin)
+    } else {
+      setResolvedFromAlias(null)
+    }
+  }, [aliasHit, debounced])
 
   const { data: listData, isLoading: listLoading, refetch, isRefetching } = useQuery({
-    queryKey: ['v_unit_master_list', debounced, page],
+    queryKey: ['v_unit_master_list', effectiveSearch, page],
     staleTime: 15_000,
     queryFn: async () => {
       let q = supabase
@@ -60,8 +95,8 @@ export default function MasterUnitPage() {
         .select('*', { count: 'exact' })
         .order('unit_number', { ascending: true })
 
-      if (debounced.trim()) {
-        const s = debounced.trim()
+      if (effectiveSearch.trim()) {
+        const s = effectiveSearch.trim()
         q = q.or(
           `vin.ilike.%${s}%,unit_number.ilike.%${s}%,serial_number.ilike.%${s}%,model.ilike.%${s}%,customer.ilike.%${s}%,under_cabang.ilike.%${s}%,device_number.ilike.%${s}%`
         )
@@ -169,7 +204,7 @@ export default function MasterUnitPage() {
         <div>
           <h2 className="text-xl font-bold text-surface-50">Master Data Unit</h2>
           <p className="text-sm text-surface-400">
-            Cari VIN / unit → semua sumber data (OLDP, jual, SJU, WO, CRM, proses)
+            VIN resmi = OLDP / CRM (SDLG). Typo VIN otomatis diarahkan ke kanonik.
           </p>
         </div>
         <button
@@ -181,25 +216,35 @@ export default function MasterUnitPage() {
         </button>
       </div>
 
-      <div className="relative w-full sm:max-w-xl">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
-        <input
-          className="input pl-9 w-full text-sm font-mono"
-          placeholder="Contoh: VLGE621FEN0609585 / E6210F / 609585 / BANJARMASIN..."
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value)
-            setPage(0)
-          }}
-        />
-        {search && (
-          <button
-            type="button"
-            className="absolute right-3 top-1/2 -translate-y-1/2"
-            onClick={() => setSearch('')}
-          >
-            <X className="w-3.5 h-3.5 text-surface-400" />
-          </button>
+      <div className="space-y-2">
+        <div className="relative w-full sm:max-w-xl">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
+          <input
+            className="input pl-9 w-full text-sm font-mono"
+            placeholder="VIN / unit / serial / model / cabang..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value)
+              setPage(0)
+            }}
+          />
+          {search && (
+            <button
+              type="button"
+              className="absolute right-3 top-1/2 -translate-y-1/2"
+              onClick={() => setSearch('')}
+            >
+              <X className="w-3.5 h-3.5 text-surface-400" />
+            </button>
+          )}
+        </div>
+        {resolvedFromAlias && aliasHit && (
+          <p className="text-xs text-amber-400/90 flex items-center gap-1.5">
+            <Link2 className="w-3.5 h-3.5" />
+            VIN typo <span className="font-mono">{resolvedFromAlias}</span> → kanonik SDLG{' '}
+            <span className="font-mono text-accent">{aliasHit.canonical_vin}</span>
+            <span className="text-surface-500">({aliasHit.reason})</span>
+          </p>
         )}
       </div>
 
@@ -325,6 +370,12 @@ export default function MasterUnitPage() {
                       <p className="text-xs text-surface-400">
                         {master.model} · {master.group_type || '—'} · SN {master.serial_number || '—'}
                       </p>
+                      {Array.isArray(master.alias_vins) && master.alias_vins.length > 0 && (
+                        <p className="text-[10px] text-amber-400/80 mt-1 flex items-center gap-1">
+                          <Link2 className="w-3 h-3" />
+                          Alias typo: {master.alias_vins.join(', ')}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right">
                       <span
@@ -479,7 +530,7 @@ export default function MasterUnitPage() {
 
                 <p className="text-[10px] text-surface-600 flex items-center gap-1">
                   <Database className="w-3 h-3" />
-                  Sumber: v_unit_master + unit_sales / unit_deliveries / work_orders / crm_records
+                  Sumber: v_unit_master + vin_alias · acuan VIN = OLDP/CRM (SDLG)
                 </p>
               </>
             )}
