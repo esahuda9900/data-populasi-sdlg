@@ -12,6 +12,7 @@ const MasterUnit = lazy(() => import('./pages/MasterUnit'))
 const Sales = lazy(() => import('./pages/Sales'))
 const Departures = lazy(() => import('./pages/Departures'))
 const Commissioning = lazy(() => import('./pages/Commissioning'))
+const AnalisaMasalah = lazy(() => import('./pages/AnalisaMasalah'))
 
 function RouteFallback() {
   return (
@@ -70,6 +71,7 @@ function App() {
           <Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route path="/" element={<MasterUnit />} />
+              <Route path="/analisa" element={<AnalisaMasalah />} />
               <Route path="/penjualan" element={<Sales />} />
               <Route path="/keberangkatan" element={<Departures />} />
               <Route path="/commissioning" element={<Commissioning />} />

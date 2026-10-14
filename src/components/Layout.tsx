@@ -12,6 +12,7 @@ import {
   Ship,
   Wrench,
   PackageSearch,
+  AlertTriangle,
 } from 'lucide-react'
 import { Session } from '@supabase/supabase-js'
 import { supabase, Unit } from '../lib/supabase'
@@ -22,6 +23,10 @@ const navSections = [
   {
     title: 'Master',
     items: [{ to: '/', label: 'Master Unit', icon: PackageSearch }],
+  },
+  {
+    title: 'Analisa',
+    items: [{ to: '/analisa', label: 'Analisa Masalah', icon: AlertTriangle }],
   },
   {
     title: 'Data sumber',
