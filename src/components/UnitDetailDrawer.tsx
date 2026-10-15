@@ -23,7 +23,6 @@ import {
   Ship,
   Wrench,
   Database,
-  Calendar,
   Factory,
 } from 'lucide-react'
 import { resolveUnitModel, POPULAR_SDLG_MODELS } from '../lib/modelUtils'
@@ -36,6 +35,10 @@ import {
   resolveUnderCabang,
   deriveMarketing,
 } from './UnitSourcePanels'
+import { useAuthProfileOptional } from '../lib/AuthProfileContext'
+import { canEdit, isAdmin } from '../lib/authProfile'
+import { saveUnitEdits } from '../lib/unitEdit'
+import { writeFieldAudits } from '../lib/auditLog'
 
 interface UnitDetailDrawerProps {
   unit: Unit | null
@@ -46,6 +49,9 @@ type Tab = 'info' | 'oldp' | 'sales' | 'sju' | 'wo' | 'crm' | 'process' | 'docum
 
 export default function UnitDetailDrawer({ unit, onClose }: UnitDetailDrawerProps) {
   const queryClient = useQueryClient()
+  const profile = useAuthProfileOptional()
+  const allowEdit = canEdit(profile?.role)
+  const adminUser = isAdmin(profile?.role)
   const [activeTab, setActiveTab] = useState<Tab>('info')
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [isEditingFull, setIsEditingFull] = useState(false)
@@ -160,7 +166,6 @@ export default function UnitDetailDrawer({ unit, onClose }: UnitDetailDrawerProp
     queryFn: () => loadByUnit('crm_records') as Promise<CrmRecord[]>,
   })
 
-  /** Smart OLDP lookup: exact VIN → insert/remove 0 before serial → serial suffix */
   const { data: oldpRow = null } = useQuery<UnitOldpFlags | null>({
     queryKey: ['drawer_oldp', unit?.vin, unit?.serial_number],
     enabled: !!(unit?.vin || unit?.serial_number),
@@ -181,19 +186,11 @@ export default function UnitDetailDrawer({ unit, onClose }: UnitDetailDrawerProp
         if (!tryVins.includes(alt)) tryVins.push(alt)
       }
       for (const v of tryVins) {
-        const { data, error } = await supabase
-          .from('unit_oldp_flags')
-          .select('*')
-          .eq('vin', v)
-          .maybeSingle()
+        const { data, error } = await supabase.from('unit_oldp_flags').select('*').eq('vin', v).maybeSingle()
         if (!error && data) return data as UnitOldpFlags
       }
       if (serial && serial.length >= 5) {
-        const { data } = await supabase
-          .from('unit_oldp_flags')
-          .select('*')
-          .ilike('vin', `%${serial}`)
-          .limit(1)
+        const { data } = await supabase.from('unit_oldp_flags').select('*').ilike('vin', `%${serial}`).limit(1)
         if (data?.[0]) return data[0] as UnitOldpFlags
       }
       return null
@@ -205,11 +202,6 @@ export default function UnitDetailDrawer({ unit, onClose }: UnitDetailDrawerProp
   const marketingDerived = deriveMarketing(salesRows.length)
   const cabangResolved = resolveUnderCabang(unit.under_cabang, woRows, sjuRows)
   const latestWoDate = woRows.map((w) => w.start_date).find((d) => d)
-  const storedMarketing = (unit.marketing_status || '').toUpperCase()
-  const marketingMismatch =
-    !!storedMarketing &&
-    storedMarketing !== marketingDerived &&
-    !storedMarketing.includes(marketingDerived)
 
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text)
@@ -222,42 +214,29 @@ export default function UnitDetailDrawer({ unit, onClose }: UnitDetailDrawerProp
     setIsSavingUnit(true)
     setSaveError(null)
     try {
-      const finalModel = editForm.model === 'CUSTOM' ? editForm.customModel.trim() : editForm.model
-      const yearDelivNum = editForm.year_delivery ? parseInt(editForm.year_delivery, 10) : null
-      const { error } = await supabase
-        .from('units')
-        .update({
-          unit_number: editForm.unit_number.trim(),
-          vin: editForm.vin.trim() || null,
-          model: finalModel || null,
-          under_cabang: editForm.under_cabang.trim() || null,
-          customer: editForm.customer.trim() || null,
-          location: editForm.location.trim() || null,
-          year_delivery: isNaN(yearDelivNum as number) ? null : yearDelivNum,
-          status: editForm.status || 'aktif',
-          serial_number: editForm.serial_number.trim() || null,
-          marketing_status: editForm.marketing_status || null,
-          device_number: editForm.device_number.trim() || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', unit.id)
-      if (error) throw error
+      await saveUnitEdits({ unit, editForm, role: profile?.role })
       setIsEditingFull(false)
       setActionFeedback('Data unit berhasil diperbarui!')
       setTimeout(() => setActionFeedback(null), 3000)
       queryClient.invalidateQueries({ queryKey: ['units_page'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard_full_compliance_data'] })
     } catch (err: any) {
-      setSaveError(err.message || 'Gagal menyimpan')
+      if (err?.message !== 'Dibatalkan') setSaveError(err.message || 'Gagal menyimpan')
     } finally {
       setIsSavingUnit(false)
     }
   }
 
   const handleToggleProcess = async (field: string, currentVal?: string | null) => {
-    if (!unit.vin) return
+    if (!unit.vin || !allowEdit) return
     const nextVal = currentVal === 'DONE' ? 'KOSONG' : 'DONE'
     await supabase.from('unit_process').upsert({ vin: unit.vin, [field]: nextVal }, { onConflict: 'vin' })
+    await writeFieldAudits({
+      tableName: 'unit_process',
+      unitId: unit.id,
+      changes: [{ field, oldValue: currentVal, newValue: nextVal }],
+      source: 'manual',
+    })
     queryClient.invalidateQueries({ queryKey: ['unit_process_detail', unit.vin] })
     setActionFeedback(`${field} → ${nextVal}`)
     setTimeout(() => setActionFeedback(null), 2500)
@@ -352,26 +331,22 @@ export default function UnitDetailDrawer({ unit, onClose }: UnitDetailDrawerProp
                       <span className="font-mono text-surface-200">{latestWoDate}</span>
                     </li>
                   ) : null}
-                  {oldpRow && unit.vin && oldpRow.vin !== unit.vin && (
-                    <li className="text-amber-400">
-                      OLDP match via VIN alternatif (<span className="font-mono">{oldpRow.vin}</span>)
-                    </li>
-                  )}
                   {marketingDerived === 'ITU' ? (
-                    <li>VIN tidak ada di data penjualan → <strong className="text-amber-300">ITU</strong> (bukan ITR)</li>
+                    <li>VIN tidak ada di data penjualan → <strong className="text-amber-300">ITU</strong></li>
                   ) : (
                     <li>VIN ketemu di data penjualan → <strong className="text-emerald-300">ITR</strong></li>
                   )}
                 </ul>
-                <p className="text-[10px] text-surface-500">Detail lengkap di tab OLDP · Sales · SJU · WO · CRM</p>
               </div>
 
-              <div className="flex justify-end">
-                <button type="button" onClick={() => setIsEditingFull(!isEditingFull)} className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5">
-                  <Edit2 className="w-3.5 h-3.5" />
-                  {isEditingFull ? 'Batal edit' : 'Edit unit'}
-                </button>
-              </div>
+              {allowEdit && (
+                <div className="flex justify-end">
+                  <button type="button" onClick={() => setIsEditingFull(!isEditingFull)} className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5">
+                    <Edit2 className="w-3.5 h-3.5" />
+                    {isEditingFull ? 'Batal edit' : 'Edit unit'}
+                  </button>
+                </div>
+              )}
 
               {isEditingFull ? (
                 <form onSubmit={handleSaveFullUnit} className="space-y-3 card p-4">
@@ -380,6 +355,9 @@ export default function UnitDetailDrawer({ unit, onClose }: UnitDetailDrawerProp
                       <AlertCircle className="w-3.5 h-3.5" />
                       {saveError}
                     </div>
+                  )}
+                  {!adminUser && (
+                    <p className="text-[11px] text-surface-500">VIN & No Unit terkunci (hanya admin).</p>
                   )}
                   <div className="grid grid-cols-2 gap-3">
                     {([
@@ -400,7 +378,11 @@ export default function UnitDetailDrawer({ unit, onClose }: UnitDetailDrawerProp
                         <input
                           className="input-field w-full text-sm"
                           value={(editForm as any)[key]}
-                          onChange={(e) => setEditForm({ ...editForm, [key]: e.target.value })}
+                          readOnly={(key === 'vin' || key === 'unit_number') && !adminUser}
+                          onChange={(e) => {
+                            if ((key === 'vin' || key === 'unit_number') && !adminUser) return
+                            setEditForm({ ...editForm, [key]: e.target.value })
+                          }}
                         />
                       </div>
                     ))}
@@ -431,171 +413,59 @@ export default function UnitDetailDrawer({ unit, onClose }: UnitDetailDrawerProp
                   <Field label="Status" value={unit.status} />
                   <Field label="Customer" value={unit.customer || unit.customer_update} />
                   <Field label="Lokasi" value={unit.location} />
-                  <Field label="Under cabang (master)" value={unit.under_cabang} />
-                  <Field
-                    label="Under cabang (resolved)"
-                    value={
-                      <>
-                        {cabangResolved.value || '—'}
-                        <span className="block text-[10px] text-surface-500">{cabangResolved.source}</span>
-                      </>
-                    }
-                  />
-                  <Field label="Tahun delivery / BL" value={unit.year_delivery} />
-                  <Field
-                    label="Marketing"
-                    value={
-                      <span className="flex flex-wrap items-center gap-2">
-                        <span>{unit.marketing_status || '—'}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ${marketingDerived === 'ITR' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-amber-500/15 text-amber-400 border-amber-500/30'}`}>
-                          Derived: {marketingDerived}
-                        </span>
-                      </span>
-                    }
-                  />
-                  {marketingMismatch && (
-                    <p className="col-span-2 text-[10px] text-amber-400">
-                      Nilai tersimpan beda dengan derived dari data penjualan ({marketingDerived}).
-                    </p>
-                  )}
-                  <Field label="Stock status" value={unit.stock_status} />
+                  <Field label="Under cabang" value={unit.under_cabang} />
+                  <Field label="Marketing" value={unit.marketing_status} />
                   <Field label="Device" value={unit.device_number} mono />
-                  <Field label="BL" value={unit.bill_of_lading || unit.bl_date || oldpRow?.bl_date} />
-                  {oldpRow && (
-                    <>
-                      <Field label="OLDP arrival" value={oldpRow.arrival_date} />
-                      <Field label="OLDP PDI" value={oldpRow.pdi_date} />
-                      <Field
-                        label="OLDP sales date"
-                        value={
-                          oldpRow.sales_date || (
-                            <span className="text-amber-400 text-xs">KOSONG</span>
-                          )
-                        }
-                      />
-                      <Field label="OLDP MS1 / MS2 / MS3" value={[oldpRow.ms1_date, oldpRow.ms2_date, oldpRow.ms3_date].filter(Boolean).join(' · ') || '—'} />
-                    </>
-                  )}
+                  <Field label="Tahun delivery" value={unit.year_delivery} />
                 </div>
               )}
             </div>
           )}
 
-          {activeTab === 'oldp' && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Factory className="w-4 h-4 text-rose-400" />
-                <h4 className="text-sm font-bold">SDLG OLDP (Factory)</h4>
-              </div>
-              <OldpPanel row={oldpRow} matchedVin={unit.vin} />
-            </div>
-          )}
-
-          {activeTab === 'sales' && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <ShoppingCart className="w-4 h-4 text-emerald-400" />
-                <h4 className="text-sm font-bold">Data Penjualan</h4>
-              </div>
-              <SalesPanel rows={salesRows} />
-            </div>
-          )}
-          {activeTab === 'sju' && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Ship className="w-4 h-4 text-cyan-400" />
-                <h4 className="text-sm font-bold">Data SJU / Pengiriman</h4>
-              </div>
-              <SjuPanel rows={sjuRows} />
-            </div>
-          )}
-          {activeTab === 'wo' && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Wrench className="w-4 h-4 text-violet-400" />
-                <h4 className="text-sm font-bold">Work Orders (AX)</h4>
-              </div>
-              <WoPanel rows={woRows} />
-            </div>
-          )}
-          {activeTab === 'crm' && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Database className="w-4 h-4 text-amber-400" />
-                <h4 className="text-sm font-bold">SDLG CRM</h4>
-              </div>
-              <CrmPanel rows={crmRows} />
-            </div>
-          )}
+          {activeTab === 'oldp' && <OldpPanel row={oldpRow} />}
+          {activeTab === 'sales' && <SalesPanel rows={salesRows} />}
+          {activeTab === 'sju' && <SjuPanel rows={sjuRows} />}
+          {activeTab === 'wo' && <WoPanel rows={woRows} />}
+          {activeTab === 'crm' && <CrmPanel rows={crmRows} />}
 
           {activeTab === 'process' && (
-            <div className="space-y-3">
-              <h4 className="text-sm font-bold">Milestone proses</h4>
-              {([
-                ['arrival_check', 'Arrival'],
-                ['pdi_check', 'PDI'],
-                ['comm_check', 'Commissioning'],
-                ['ms_check_1', 'MS1'],
-                ['ms_check_2', 'MS2'],
-                ['ms_check_3', 'MS3'],
-              ] as const).map(([field, label]) => {
-                const val = (processData as any)?.[field] as string | null | undefined
-                const done = val === 'DONE'
+            <div className="space-y-2">
+              {(['arrival_check', 'ms_check_1', 'ms_check_2', 'ms_check_3', 'pdi_check', 'comm_check'] as const).map((field) => {
+                const val = processData?.[field]
                 return (
                   <button
                     key={field}
                     type="button"
+                    disabled={!allowEdit}
                     onClick={() => handleToggleProcess(field, val)}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-sm transition-colors ${
-                      done
-                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                        : 'bg-surface-900 border-surface-700 text-surface-400 hover:border-surface-600'
-                    }`}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs ${
+                      val === 'DONE'
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                        : 'border-surface-700 bg-surface-900 text-surface-300'
+                    } ${!allowEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
-                    <span>{label}</span>
-                    <span className="text-xs font-mono">{done ? 'DONE' : val || 'KOSONG'}</span>
+                    <span className="font-mono">{field}</span>
+                    <span>{val === 'DONE' ? 'DONE' : 'KOSONG'}</span>
                   </button>
                 )
               })}
-              {processData?.pdi_date && (
-                <p className="text-xs text-surface-500">PDI date: {processData.pdi_date}</p>
-              )}
             </div>
           )}
 
           {activeTab === 'documents' && (
             <div className="space-y-2">
-              <h4 className="text-sm font-bold">Dokumen unit</h4>
-              {documentsData.length === 0 && (
-                <p className="text-xs text-surface-500">Belum ada dokumen terdaftar.</p>
+              {documentsData.length === 0 ? (
+                <p className="text-sm text-surface-500">Belum ada dokumen.</p>
+              ) : (
+                documentsData.map((d: any) => (
+                  <div key={d.id} className="flex justify-between text-xs border border-surface-800 rounded-lg px-3 py-2">
+                    <span>{d.document_types?.name || d.file_name || 'Dokumen'}</span>
+                    <span className="text-surface-400">{d.status}</span>
+                  </div>
+                ))
               )}
-              {documentsData.map((doc: any) => (
-                <div
-                  key={doc.id}
-                  className="flex items-center justify-between px-3 py-2 rounded-lg border border-surface-700 bg-surface-900/50 text-xs"
-                >
-                  <span className="text-surface-200">{doc.document_types?.name || doc.document_types?.code || 'Doc'}</span>
-                  <span
-                    className={`px-1.5 py-0.5 rounded font-semibold ${
-                      doc.status === 'uploaded'
-                        ? 'bg-emerald-500/15 text-emerald-400'
-                        : doc.status === 'missing'
-                          ? 'bg-red-500/15 text-red-400'
-                          : 'bg-surface-800 text-surface-400'
-                    }`}
-                  >
-                    {doc.status}
-                  </span>
-                </div>
-              ))}
             </div>
           )}
-        </div>
-
-        <div className="p-3 border-t border-surface-800">
-          <button type="button" onClick={onClose} className="btn-secondary w-full text-sm py-2">
-            Tutup
-          </button>
         </div>
       </div>
     </div>
