@@ -71,8 +71,26 @@ export default function AccountManagement() {
         status: 'approved', requested_role: role, reviewed_by: user.id, reviewed_at: new Date().toISOString(),
       }).eq('id', req.id).eq('status', 'pending')
       if (upErr) throw upErr
-      setMessage(`Approved: ${req.email} (role: ${role}). Lanjut: Supabase Auth → Invite user (email sama) metadata nama="${req.full_name}", role="${role}", cabang="${req.cabang || '-'}". Trigger auto-buat profile. User set password dari email invite.`)
+
+      const profileId = req.user_id || null
+      if (profileId) {
+        const { error: profErr } = await supabase.from('user_profiles').update({
+          is_active: true,
+          role,
+          full_name: req.full_name,
+          cabang: req.cabang || null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', profileId)
+        if (profErr) throw new Error('Request approved, tapi gagal aktifkan profile: ' + profErr.message)
+      }
+
+      setMessage(
+        profileId
+          ? `Approved & aktif: ${req.email} (role: ${role}). User bisa login dengan password yang didaftarkan.`
+          : `Approved: ${req.email}. Profile belum ter-link (user_id kosong). Aktifkan manual di tab Users.`
+      )
       await queryClient.invalidateQueries({ queryKey: ['account_requests'] })
+      await queryClient.invalidateQueries({ queryKey: ['user_profiles_admin'] })
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Gagal approve')
     } finally { setBusyId(null) }
@@ -241,12 +259,11 @@ export default function AccountManagement() {
             )}
           </div>
           <div className="text-[11px] text-surface-500 border border-surface-800 rounded-lg p-3 bg-surface-900/50 space-y-1">
-            <p className="font-semibold text-surface-400">Setelah Approve:</p>
+            <p className="font-semibold text-surface-400">Alur signup (baru):</p>
             <ol className="list-decimal list-inside space-y-0.5">
-              <li>Supabase → Authentication → Invite user</li>
-              <li>Metadata: nama, role, cabang</li>
-              <li>Trigger auto-insert user_profiles</li>
-              <li>User set password dari email → login</li>
+              <li>User daftar (email + password + form profil)</li>
+              <li>Profile otomatis is_active=false → menunggu approve</li>
+              <li>Admin Approve → profile diaktifkan, user langsung bisa login</li>
             </ol>
           </div>
         </>
@@ -310,6 +327,6 @@ export default function AccountManagement() {
 
 function StatusBadge({ status }: { status: string }) {
   if (status === 'pending') return <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2 py-0.5 rounded-full"><Clock className="w-3 h-3" /> pending</span>
-  if (status === 'approved') return <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 px-2 py-0.5 rounded-full"><CheckCircle2 className="w-3 h-3" /> approved</span>
-  return <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-400 bg-red-400/10 border border-red-400/20 px-2 py-0.5 rounded-full"><XCircle className="w-3 h-3" /> rejected</span>
+  if (status === 'approved') return <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-500/20 px-2 py-0.5 rounded-full"><CheckCircle2 className="w-3 h-3" /> approved</span>
+  return <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-400 bg-red-400/10 border border-red-500/20 px-2 py-0.5 rounded-full"><XCircle className="w-3 h-3" /> rejected</span>
 }
