@@ -16,6 +16,7 @@ const Departures = lazy(() => import('./pages/Departures'))
 const Commissioning = lazy(() => import('./pages/Commissioning'))
 const AnalisaMasalah = lazy(() => import('./pages/AnalisaMasalah'))
 const AccountManagement = lazy(() => import('./pages/AccountManagement'))
+const UserDetail = lazy(() => import('./pages/UserDetail'))
 
 function RouteFallback() {
   return (
@@ -146,6 +147,12 @@ function App() {
                 path="/akun"
                 element={
                   profile.role === 'admin' ? <AccountManagement /> : <Navigate to="/" replace />
+                }
+              />
+              <Route
+                path="/akun/users/:userId"
+                element={
+                  profile.role === 'admin' ? <UserDetail /> : <Navigate to="/" replace />
                 }
               />
               <Route path="/units" element={<Navigate to="/" replace />} />
