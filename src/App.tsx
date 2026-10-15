@@ -6,6 +6,7 @@ import Layout from './components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { NetworkStatus } from './components/NetworkStatus'
 import { Skeleton } from './components/Skeleton'
+import { fetchMyProfile, UserProfile } from './lib/authProfile'
 
 const Login = lazy(() => import('./pages/Login'))
 const MasterUnit = lazy(() => import('./pages/MasterUnit'))
@@ -13,6 +14,7 @@ const Sales = lazy(() => import('./pages/Sales'))
 const Departures = lazy(() => import('./pages/Departures'))
 const Commissioning = lazy(() => import('./pages/Commissioning'))
 const AnalisaMasalah = lazy(() => import('./pages/AnalisaMasalah'))
+const AccountManagement = lazy(() => import('./pages/AccountManagement'))
 
 function RouteFallback() {
   return (
@@ -28,24 +30,85 @@ function RouteFallback() {
   )
 }
 
+function InactiveGate({ email, onLogout }: { email?: string; onLogout: () => void }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-surface-950 px-4">
+      <div className="card p-8 max-w-md w-full space-y-4 text-center border-surface-800">
+        <h1 className="text-lg font-semibold text-surface-50">Akun belum diaktifkan</h1>
+        <p className="text-sm text-surface-400 leading-relaxed">
+          {email ? (
+            <>
+              Login berhasil untuk <span className="text-surface-200">{email}</span>, tetapi profil
+              belum aktif atau belum di-approve admin.
+            </>
+          ) : (
+            <>Login berhasil, tetapi profil belum aktif atau belum di-approve admin.</>
+          )}
+        </p>
+        <p className="text-xs text-surface-500">
+          Ajukan akses lewat form di halaman login, atau hubungi admin ITU.
+        </p>
+        <button type="button" onClick={onLogout} className="btn-primary w-full py-2.5">
+          Keluar & kembali ke Login
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [session, setSession] = useState<Session | null>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [profileChecked, setProfileChecked] = useState(false)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setLoading(false)
-    })
+    let cancelled = false
+
+    const load = async (sess: Session | null) => {
+      if (!sess) {
+        if (!cancelled) {
+          setSession(null)
+          setProfile(null)
+          setProfileChecked(true)
+          setLoading(false)
+        }
+        return
+      }
+      if (!cancelled) {
+        setSession(sess)
+        setLoading(true)
+        setProfileChecked(false)
+      }
+      const p = await fetchMyProfile()
+      if (!cancelled) {
+        setProfile(p)
+        setProfileChecked(true)
+        setLoading(false)
+      }
+    }
+
+    supabase.auth.getSession().then(({ data: { session: s } }) => load(s))
+
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
+    } = supabase.auth.onAuthStateChange((_event, s) => {
+      load(s)
     })
-    return () => subscription.unsubscribe()
+
+    return () => {
+      cancelled = true
+      subscription.unsubscribe()
+    }
   }, [])
 
-  if (loading) {
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    setSession(null)
+    setProfile(null)
+  }
+
+  if (loading || (session && !profileChecked)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface-950">
         <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
@@ -66,8 +129,10 @@ function App() {
         >
           <Login />
         </Suspense>
+      ) : !profile ? (
+        <InactiveGate email={session.user?.email} onLogout={handleLogout} />
       ) : (
-        <Layout session={session}>
+        <Layout session={session} profile={profile}>
           <Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route path="/" element={<MasterUnit />} />
@@ -75,6 +140,12 @@ function App() {
               <Route path="/penjualan" element={<Sales />} />
               <Route path="/keberangkatan" element={<Departures />} />
               <Route path="/commissioning" element={<Commissioning />} />
+              <Route
+                path="/akun"
+                element={
+                  profile.role === 'admin' ? <AccountManagement /> : <Navigate to="/" replace />
+                }
+              />
               <Route path="/units" element={<Navigate to="/" replace />} />
               <Route path="/documents" element={<Navigate to="/" replace />} />
               <Route path="/process" element={<Navigate to="/" replace />} />
