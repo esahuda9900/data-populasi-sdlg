@@ -32,6 +32,19 @@ export async function adminRestoreUser(userId: string) {
   return callAdminAction({ action: 'restore', user_id: userId })
 }
 
+export async function adminHardDelete(
+  userId: string,
+  confirmName: string,
+  confirmEmail: string
+) {
+  return callAdminAction({
+    action: 'hard_delete',
+    user_id: userId,
+    confirm_name: confirmName,
+    confirm_email: confirmEmail,
+  })
+}
+
 export async function updateProfileOptimistic(opts: {
   id: string
   full_name: string
