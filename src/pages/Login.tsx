@@ -5,10 +5,10 @@ import {
   UserPlus, Building2, MessageSquare, Phone,
 } from 'lucide-react'
 
-type Mode = 'login' | 'request'
+type Mode = 'login' | 'signup'
 
 const CABANG_OPTIONS = [
-  'JAKARTA', 'SURABAYA', 'BALIKPAPAN', 'BANJARMASIN', 'SAMARINDA',
+  'JAKARTA', 'SURABAYA', 'BALIKOPAN', 'BANJARMASIN', 'SAMARINDA',
   'MAKASSAR', 'MEDAN', 'PALEMBANG', 'PADANG', 'PEKANBARU',
   'PONTIANAK', 'MANADO', 'LAINNYA',
 ]
@@ -21,9 +21,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-
   const [fullName, setFullName] = useState('')
-  const [reqEmail, setReqEmail] = useState('')
   const [cabang, setCabang] = useState('JAKARTA')
   const [cabangLainnya, setCabangLainnya] = useState('')
   const [requestedRole, setRequestedRole] = useState<'operator' | 'viewer'>('operator')
@@ -32,52 +30,51 @@ export default function Login() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoading(true)
-    setError(null)
-    setSuccess(null)
+    setLoading(true); setError(null); setSuccess(null)
     try {
       const { error: err } = await supabase.auth.signInWithPassword({ email, password })
       if (err) throw err
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Terjadi kesalahan autentikasi.')
-    } finally {
-      setLoading(false)
-    }
+    } finally { setLoading(false) }
   }
 
-  const validateRequest = (): string | null => {
+  const validateSignup = (): string | null => {
     if (fullName.trim().length < 3) return 'Nama lengkap minimal 3 karakter *'
-    if (!reqEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reqEmail.trim())) {
-      return 'Email tidak valid *'
-    }
-    if (cabang === 'LAINNYA' && cabangLainnya.trim().length < 2) {
-      return 'Isi nama cabang manual (wajib jika pilih LAINNYA) *'
-    }
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return 'Email tidak valid *'
+    if (password.length < 6) return 'Password minimal 6 karakter *'
+    if (cabang === 'LAINNYA' && cabangLainnya.trim().length < 2) return 'Isi nama cabang manual (wajib jika pilih LAINNYA) *'
     if (reason.trim().length < 10) return 'Alasan minimal 10 karakter *'
-    if (phone.trim() && !/^0\d{8,14}$/.test(phone.trim().replace(/[\s-]/g, ''))) {
-      return 'No. HP tidak valid (contoh: 08xxxxxxxxxx)'
-    }
+    if (phone.trim() && !/^0\d{8,14}$/.test(phone.trim().replace(/[\s-]/g, ''))) return 'No. HP tidak valid'
     return null
   }
 
-  const handleRequest = async (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError(null)
-    setSuccess(null)
-    const v = validateRequest()
+    setError(null); setSuccess(null)
+    const v = validateSignup()
     if (v) { setError(v); return }
     setLoading(true)
     try {
-      const emailNorm = reqEmail.trim().toLowerCase()
+      const emailNorm = email.trim().toLowerCase()
       const cabangFinal = cabang === 'LAINNYA' ? cabangLainnya.trim().toUpperCase() : cabang
-      const { data: existingReq } = await supabase
-        .from('account_requests')
-        .select('id, status')
-        .eq('email', emailNorm)
-        .eq('status', 'pending')
-        .maybeSingle()
-      if (existingReq) throw new Error('Email ini sudah punya pengajuan pending. Tunggu review admin.')
-      const { error: err } = await supabase.from('account_requests').insert({
+      const { data, error: signErr } = await supabase.auth.signUp({
+        email: emailNorm,
+        password,
+        options: {
+          data: {
+            nama: fullName.trim(),
+            full_name: fullName.trim(),
+            role: requestedRole,
+            cabang: cabangFinal,
+            is_active: false,
+          },
+        },
+      })
+      if (signErr) throw signErr
+      if (!data.user) throw new Error('Gagal membuat akun. Coba lagi.')
+
+      const { error: reqErr } = await supabase.from('account_requests').insert({
         full_name: fullName.trim(),
         email: emailNorm,
         cabang: cabangFinal,
@@ -85,15 +82,20 @@ export default function Login() {
         reason: reason.trim(),
         phone: phone.trim() || null,
         status: 'pending',
+        user_id: data.user.id,
       })
-      if (err) throw err
-      setSuccess('Pengajuan diterima. Admin akan review. Setelah disetujui, kamu akan di-invite lewat email untuk set password, lalu bisa login.')
-      setFullName(''); setReqEmail(''); setReason(''); setPhone(''); setCabangLainnya(''); setCabang('JAKARTA')
+      if (reqErr && !reqErr.message.toLowerCase().includes('duplicate')) {
+        console.warn('account_requests insert', reqErr.message)
+      }
+
+      setSuccess('Akun berhasil dibuat. Status: menunggu approval admin. Setelah disetujui, login dengan email & password yang sama.')
+      setMode('login'); setPassword(''); setFullName(''); setReason(''); setPhone(''); setCabangLainnya('')
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Gagal mengirim pengajuan.')
-    } finally {
-      setLoading(false)
-    }
+      const msg = err instanceof Error ? err.message : 'Gagal daftar.'
+      if (msg.toLowerCase().includes('already') || msg.toLowerCase().includes('registered')) {
+        setError('Email sudah terdaftar. Silakan login, atau hubungi admin jika menunggu approval.')
+      } else setError(msg)
+    } finally { setLoading(false) }
   }
 
   const labelReq = (text: string) => (
@@ -116,7 +118,7 @@ export default function Login() {
         <div className="card p-6 sm:p-8 space-y-5 shadow-2xl border-surface-800/80 bg-surface-900/95 backdrop-blur">
           <div className="flex items-center justify-between pb-3 border-b border-surface-800">
             <h2 className="text-base font-semibold text-surface-100">
-              {mode === 'login' ? 'Masuk ke Sistem' : 'Ajukan Akses Akun'}
+              {mode === 'login' ? 'Masuk ke Sistem' : 'Daftar Akun Baru'}
             </h2>
             <span className="text-xs text-accent flex items-center gap-1 font-medium">
               <ShieldCheck className="w-3.5 h-3.5" /> Portal Internal
@@ -142,31 +144,39 @@ export default function Login() {
                 </div>
               </div>
               {error && <div className="p-3 rounded-lg bg-red-400/10 border border-red-500/20 text-red-400 text-xs">{error}</div>}
+              {success && <div className="p-3 rounded-lg bg-emerald-400/10 border border-emerald-500/20 text-emerald-400 text-xs">{success}</div>}
               <button type="submit" disabled={loading} className="btn-primary w-full py-2.5 font-semibold flex items-center justify-center gap-2">
                 <span>{loading ? 'Memproses...' : 'Masuk ke Dashboard'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
-              <p className="text-[10px] text-surface-500 text-center">
-                Password dibuat lewat email invite setelah admin approve. Tidak ada daftar password di form pengajuan.
-              </p>
             </form>
           ) : (
-            <form onSubmit={handleRequest} className="space-y-3">
+            <form onSubmit={handleSignup} className="space-y-3">
               <p className="text-[11px] text-surface-500">
-                Field bertanda <span className="text-red-400">*</span> wajib diisi. Setelah disetujui, password diatur via email invite.
+                Daftar dengan email & password. Field <span className="text-red-400">*</span> wajib. Akun baru harus disetujui admin sebelum bisa dipakai.
               </p>
               <div>
                 {labelReq('Nama lengkap')}
                 <div className="relative">
                   <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
-                  <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} className="input pl-9" required minLength={3} placeholder="Minimal 3 karakter" />
+                  <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} className="input pl-9" required minLength={3} />
                 </div>
               </div>
               <div>
-                {labelReq('Email kantor')}
+                {labelReq('Email')}
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
-                  <input type="email" value={reqEmail} onChange={(e) => setReqEmail(e.target.value)} className="input pl-9" required />
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="input pl-9" required autoComplete="email" />
+                </div>
+              </div>
+              <div>
+                {labelReq('Password')}
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
+                  <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} className="input pl-9 pr-10" required minLength={6} autoComplete="new-password" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400">
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
               <div>
@@ -205,19 +215,20 @@ export default function Login() {
               {error && <div className="p-3 rounded-lg bg-red-400/10 border border-red-500/20 text-red-400 text-xs">{error}</div>}
               {success && <div className="p-3 rounded-lg bg-emerald-400/10 border border-emerald-500/20 text-emerald-400 text-xs">{success}</div>}
               <button type="submit" disabled={loading} className="btn-primary w-full py-2.5 font-semibold flex items-center justify-center gap-2">
-                <span>{loading ? 'Mengirim...' : 'Kirim Pengajuan'}</span>
+                <span>{loading ? 'Mendaftar...' : 'Daftar & Ajukan Akses'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
           )}
           <div className="pt-3 border-t border-surface-800 text-center text-xs text-surface-400">
             {mode === 'login' ? (
-              <p>Belum punya akses?{' '}<button type="button" onClick={() => { setMode('request'); setError(null); setSuccess(null) }} className="text-accent hover:underline font-semibold">Ajukan akun di sini</button></p>
+              <p>Belum punya akun?{' '}<button type="button" onClick={() => { setMode('signup'); setError(null); setSuccess(null) }} className="text-accent hover:underline font-semibold">Daftar di sini</button></p>
             ) : (
-              <p>Sudah punya akun aktif?{' '}<button type="button" onClick={() => { setMode('login'); setError(null); setSuccess(null) }} className="text-accent hover:underline font-semibold">Masuk di sini</button></p>
+              <p>Sudah punya akun?{' '}<button type="button" onClick={() => { setMode('login'); setError(null); setSuccess(null) }} className="text-accent hover:underline font-semibold">Masuk di sini</button></p>
             )}
           </div>
         </div>
+        <p className="text-center text-[11px] text-surface-500">Akun baru aktif setelah admin menyetujui pengajuan</p>
       </div>
     </div>
   )
