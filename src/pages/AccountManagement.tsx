@@ -9,8 +9,14 @@ import {
 } from 'lucide-react'
 
 type Filter = 'pending' | 'approved' | 'rejected' | 'all'
-type Tab = 'requests' | 'users'
-type ProfileRow = UserProfile & { email?: string | null; deleted_at?: string | null }
+type Tab = 'requests' | 'users' | 'arsip'
+type ProfileRow = UserProfile & {
+  email?: string | null
+  email_original?: string | null
+  deleted_at?: string | null
+  deleted_by?: string | null
+  delete_reason?: string | null
+}
 
 export default function AccountManagement() {
   const queryClient = useQueryClient()
@@ -41,7 +47,7 @@ export default function AccountManagement() {
     queryFn: async () => {
       const { data, error: err } = await supabase
         .from('user_profiles')
-        .select('id, email, full_name, role, cabang, phone, is_active, created_at, updated_at, deleted_at')
+        .select('id, email, email_original, full_name, role, cabang, phone, is_active, created_at, updated_at, deleted_at, deleted_by, delete_reason')
         .order('created_at', { ascending: false })
       if (err) throw err
       return (data || []) as ProfileRow[]
@@ -54,12 +60,27 @@ export default function AccountManagement() {
     const q = search.toLowerCase()
     return r.full_name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q) || (r.cabang || '').toLowerCase().includes(q)
   })
-  const filteredUsers = users.filter((u) => {
-    if (u.deleted_at) return false
+
+  const matchSearch = (u: ProfileRow) => {
     if (!search.trim()) return true
     const q = search.toLowerCase()
-    return u.full_name.toLowerCase().includes(q) || u.id.toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q) || (u.cabang || '').toLowerCase().includes(q) || u.role.toLowerCase().includes(q)
-  })
+    return (
+      u.full_name.toLowerCase().includes(q) ||
+      u.id.toLowerCase().includes(q) ||
+      (u.email || '').toLowerCase().includes(q) ||
+      (u.email_original || '').toLowerCase().includes(q) ||
+      (u.cabang || '').toLowerCase().includes(q) ||
+      u.role.toLowerCase().includes(q)
+    )
+  }
+  const filteredUsers = users.filter((u) => !u.deleted_at && matchSearch(u))
+  const archivedUsers = users.filter((u) => !!u.deleted_at && matchSearch(u))
+
+  const reviewerName = (id: string | null) => {
+    if (!id) return null
+    const u = users.find((x) => x.id === id)
+    return u?.full_name || id.slice(0, 8) + '…'
+  }
 
   const handleApprove = async (req: AccountRequest) => {
     setBusyId(req.id); setError(null); setMessage(null)
@@ -83,6 +104,7 @@ export default function AccountManagement() {
       setMessage(profileId ? `Approved & aktif: ${req.email} (role: ${role}).` : `Approved: ${req.email}. Aktifkan manual di Users/Detail.`)
       await queryClient.invalidateQueries({ queryKey: ['account_requests'] })
       await queryClient.invalidateQueries({ queryKey: ['user_profiles_admin'] })
+      await queryClient.invalidateQueries({ queryKey: ['nav_pending_requests'] })
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Gagal approve')
     } finally { setBusyId(null) }
@@ -105,6 +127,7 @@ export default function AccountManagement() {
       setRejectId(null); setRejectConfirmId(null); setRejectReason('')
       setMessage(`Request ${req.email} ditolak.`)
       await queryClient.invalidateQueries({ queryKey: ['account_requests'] })
+      await queryClient.invalidateQueries({ queryKey: ['nav_pending_requests'] })
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Gagal reject')
     } finally { setBusyId(null) }
@@ -154,7 +177,7 @@ export default function AccountManagement() {
     const action = req.status === 'approved' ? 'Di-approve' : 'Di-reject'
     return (
       <p className="text-[11px] text-surface-500 mt-1">
-        {action} oleh <span className="font-mono">{req.reviewed_by?.slice(0, 8)}…</span> pada {when}
+        {action} oleh <span className="text-surface-300">{reviewerName(req.reviewed_by)}</span> pada {when}
         {req.status === 'rejected' && req.rejection_reason && (<> · Alasan: <span className="text-red-400">{req.rejection_reason}</span></>)}
       </p>
     )
@@ -172,7 +195,7 @@ export default function AccountManagement() {
           </h1>
           <p className="text-sm text-surface-400 mt-1">Kelola pengajuan & user (admin).</p>
         </div>
-        <button type="button" onClick={() => (tab === 'requests' ? refetchReq() : refetchUsers())} className="btn-secondary text-xs flex items-center gap-1.5 self-start">
+        <button type="button" onClick={() => { refetchReq(); refetchUsers() }} className="btn-secondary text-xs flex items-center gap-1.5 self-start">
           <RefreshCw className={`w-3.5 h-3.5 ${fetchingReq || fetchingUsers ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </div>
@@ -180,9 +203,10 @@ export default function AccountManagement() {
       {message && <div className="p-3 rounded-lg bg-emerald-400/10 border border-emerald-500/20 text-emerald-400 text-xs leading-relaxed">{message}</div>}
       {error && <div className="p-3 rounded-lg bg-red-400/10 border border-red-500/20 text-red-400 text-xs">{error}</div>}
 
-      <div className="flex gap-2 border-b border-surface-800 pb-2">
+      <div className="flex gap-2 border-b border-surface-800 pb-2 flex-wrap">
         <button type="button" onClick={() => setTab('requests')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${tab === 'requests' ? 'bg-accent/15 text-accent' : 'text-surface-400'}`}><Inbox className="w-3.5 h-3.5" /> Requests</button>
         <button type="button" onClick={() => setTab('users')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${tab === 'users' ? 'bg-accent/15 text-accent' : 'text-surface-400'}`}><Users className="w-3.5 h-3.5" /> Users</button>
+        <button type="button" onClick={() => setTab('arsip')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${tab === 'arsip' ? 'bg-accent/15 text-accent' : 'text-surface-400'}`}>Arsip ({archivedUsers.length})</button>
       </div>
 
       <input className="input text-sm max-w-md" placeholder="Cari nama / email / UUID / cabang..." value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -211,7 +235,6 @@ export default function AccountManagement() {
                       <div className="min-w-0">
                         <p className="font-semibold text-surface-100">{req.full_name}</p>
                         <p className="text-xs text-surface-400 break-all">{req.email}</p>
-                        <p className="text-[10px] font-mono text-surface-600 mt-0.5">id: {req.id}</p>
                         <p className="text-[11px] text-surface-500 mt-1">Cabang: {req.cabang || '—'} · Minta: {req.requested_role} · {new Date(req.created_at).toLocaleString('id-ID')}</p>
                         {req.reason && <p className="text-xs text-surface-300 mt-2 bg-surface-950/50 rounded-lg p-2 border border-surface-800">{req.reason}</p>}
                         {reviewerLabel(req)}
@@ -280,7 +303,6 @@ export default function AccountManagement() {
                           <Link to={`/akun/users/${u.id}`} className="hover:text-accent hover:underline">{u.full_name}</Link>
                         </p>
                         <p className="text-xs text-surface-400 break-all">{u.email || '—'}</p>
-                        <p className="text-[10px] font-mono text-surface-500 break-all">UUID: {u.id}</p>
                         <p className="text-[11px] text-surface-400 mt-1">
                           Role: <span className="text-accent">{u.role}</span> · Cabang: {u.cabang || '—'} ·{' '}
                           {u.is_active ? <span className="text-emerald-400">aktif</span> : <span className="text-red-400">nonaktif</span>}
@@ -295,6 +317,32 @@ export default function AccountManagement() {
                       </div>
                     </div>
                   )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {tab === 'arsip' && (
+        <div className="card border-surface-800 overflow-x-auto">
+          {loadingUsers ? (
+            <div className="p-8 flex flex-col items-center gap-2 text-surface-400 text-sm"><Loader2 className="w-5 h-5 animate-spin" /> Memuat arsip...</div>
+          ) : archivedUsers.length === 0 ? (
+            <div className="p-8 text-center text-surface-500 text-sm">Arsip kosong.</div>
+          ) : (
+            <ul className="divide-y divide-surface-800 min-w-[320px]">
+              {archivedUsers.map((u) => (
+                <li key={u.id} className="p-4 sm:p-5 space-y-1">
+                  <p className="font-semibold text-surface-100">
+                    <Link to={`/akun/users/${u.id}`} className="hover:text-accent hover:underline">{u.full_name}</Link>
+                  </p>
+                  <p className="text-xs text-surface-400 break-all">{u.email_original || u.email || '—'}</p>
+                  <p className="text-[11px] text-surface-500">
+                    Dihapus: {u.deleted_at ? new Date(u.deleted_at).toLocaleString('id-ID') : '—'}
+                    {u.delete_reason ? ` · ${u.delete_reason}` : ''}
+                  </p>
+                  <Link to={`/akun/users/${u.id}`} className="inline-block mt-1 text-[11px] text-accent hover:underline">Detail / Restore</Link>
                 </li>
               ))}
             </ul>
