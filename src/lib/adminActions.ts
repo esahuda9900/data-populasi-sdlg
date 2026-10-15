@@ -45,6 +45,14 @@ export async function adminHardDelete(
   })
 }
 
+export async function adminGenerateResetLink(userId: string) {
+  return callAdminAction({ action: 'generate_reset_link', user_id: userId }) as Promise<{
+    success?: boolean
+    action_link?: string
+    message?: string
+  }>
+}
+
 export async function updateProfileOptimistic(opts: {
   id: string
   full_name: string
