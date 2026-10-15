@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { AccountRequest } from '../lib/authProfile'
 import {
-  adminResetPassword, adminForceLogout, adminSoftDelete, adminRestoreUser, updateProfileOptimistic,
+  adminResetPassword, adminForceLogout, adminSoftDelete, adminRestoreUser, adminHardDelete, updateProfileOptimistic,
 } from '../lib/adminActions'
 import {
   ArrowLeft, Copy, Check, Loader2, Pencil, KeyRound, LogOut, Ban, Trash2, RotateCcw, Shield,
@@ -187,9 +187,26 @@ export default function UserDetail() {
         )}
 
         {isDeleted && (
-          <div className="pt-2 border-t border-surface-800">
+          <div className="pt-2 border-t border-surface-800 flex flex-wrap gap-2">
             <ActionBtn icon={<RotateCcw className="w-3 h-3" />} label="Restore dari Arsip" disabled={busy}
               onClick={() => { if (!window.confirm('Restore user ini?')) return; runAction(() => adminRestoreUser(user.id), 'User di-restore') }} />
+            {(() => {
+              const days = (Date.now() - new Date(user.deleted_at!).getTime()) / 86400000
+              if (days < 30) {
+                return <p className="text-[11px] text-surface-500 w-full">Hard delete setelah 30 hari (sekarang {Math.floor(days)} hari).</p>
+              }
+              return (
+                <ActionBtn icon={<Trash2 className="w-3 h-3" />} label="Hapus Permanen" danger disabled={busy}
+                  onClick={() => {
+                    const name = window.prompt(`Ketik nama tepat: ${user.full_name}`)
+                    if (name !== user.full_name) { setErr('Nama tidak sesuai'); return }
+                    const email = window.prompt(`Ketik email asli: ${user.email_original || ''}`)
+                    if (email !== (user.email_original || '')) { setErr('Email tidak sesuai'); return }
+                    if (!window.confirm('PERMANEN. Backup otomatis. Lanjutkan?')) return
+                    runAction(() => adminHardDelete(user.id, name!, email!), 'User dihapus permanen').then(() => navigate('/akun'))
+                  }} />
+              )
+            })()}
           </div>
         )}
 
