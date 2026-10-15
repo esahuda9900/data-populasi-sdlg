@@ -4,6 +4,7 @@ export type UserRole = 'admin' | 'operator' | 'viewer'
 
 export type UserProfile = {
   id: string
+  email?: string | null
   full_name: string
   role: UserRole
   cabang: string | null
@@ -11,6 +12,12 @@ export type UserProfile = {
   is_active: boolean
   created_at?: string
   updated_at?: string
+  deleted_at?: string | null
+  deleted_by?: string | null
+  delete_reason?: string | null
+  email_original?: string | null
+  last_password_reset_at?: string | null
+  force_logout_at?: string | null
 }
 
 export type AccountRequest = {
@@ -35,12 +42,12 @@ export async function fetchMyProfile(): Promise<UserProfile | null> {
 
   const { data, error } = await supabase
     .from('user_profiles')
-    .select('id, full_name, role, cabang, phone, is_active, created_at, updated_at')
+    .select('id, email, full_name, role, cabang, phone, is_active, created_at, updated_at, deleted_at')
     .eq('id', user.id)
     .maybeSingle()
 
   if (error || !data) return null
-  if (!data.is_active) return null
+  if (!data.is_active || data.deleted_at) return null
   return data as UserProfile
 }
 
