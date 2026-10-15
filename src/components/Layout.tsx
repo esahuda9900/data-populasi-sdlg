@@ -40,7 +40,7 @@ export default function Layout({
   const showAi = canUseAi(profile.role)
   const admin = isAdmin(profile.role)
 
-  const { data: pendingCount = 0 } = useQuery({
+  const { data: pendingCount = 0, refetch: refetchPending } = useQuery({
     queryKey: ['nav_pending_requests'],
     enabled: admin,
     refetchInterval: 60_000,
@@ -53,6 +53,19 @@ export default function Layout({
       return count || 0
     },
   })
+
+  useEffect(() => {
+    if (!admin) return
+    const channel = supabase
+      .channel('nav-pending-requests')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'account_requests' },
+        () => { refetchPending() }
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [admin, refetchPending])
 
   const navSections = admin
     ? [...navSectionsBase, { title: 'Admin', items: [{ to: '/akun', label: 'Account Management', icon: Shield }] }]
