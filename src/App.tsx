@@ -35,19 +35,19 @@ function InactiveGate({ email, onLogout }: { email?: string; onLogout: () => voi
   return (
     <div className="min-h-screen flex items-center justify-center bg-surface-950 px-4">
       <div className="card p-8 max-w-md w-full space-y-4 text-center border-surface-800">
-        <h1 className="text-lg font-semibold text-surface-50">Akun belum diaktifkan</h1>
+        <h1 className="text-lg font-semibold text-surface-50">Menunggu approval admin</h1>
         <p className="text-sm text-surface-400 leading-relaxed">
           {email ? (
             <>
-              Login berhasil untuk <span className="text-surface-200">{email}</span>, tetapi profil
-              belum aktif atau belum di-approve admin.
+              Login berhasil untuk <span className="text-surface-200">{email}</span>. Akun kamu
+              masih menunggu review admin sebelum bisa dipakai.
             </>
           ) : (
-            <>Login berhasil, tetapi profil belum aktif atau belum di-approve admin.</>
+            <>Login berhasil, tetapi akun masih menunggu approval admin.</>
           )}
         </p>
         <p className="text-xs text-surface-500">
-          Ajukan akses lewat form di halaman login, atau hubungi admin ITU.
+          Setelah admin menyetujui, refresh atau login ulang. Hubungi admin ITU jika sudah lama menunggu.
         </p>
         <button type="button" onClick={onLogout} className="btn-primary w-full py-2.5">
           Keluar & kembali ke Login

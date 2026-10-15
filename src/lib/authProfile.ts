@@ -22,13 +22,13 @@ export type AccountRequest = {
   reason: string | null
   phone: string | null
   status: 'pending' | 'approved' | 'rejected'
+  user_id?: string | null
   rejection_reason: string | null
   reviewed_by: string | null
   reviewed_at: string | null
   created_at: string
 }
 
-/** Fetch profile for current session user. Returns null if missing / inactive / error. */
 export async function fetchMyProfile(): Promise<UserProfile | null> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
