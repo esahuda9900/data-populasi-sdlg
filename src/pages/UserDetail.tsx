@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { AccountRequest } from '../lib/authProfile'
 import {
-  adminResetPassword, adminForceLogout, adminSoftDelete, adminRestoreUser, adminHardDelete, updateProfileOptimistic,
+  adminResetPassword, adminForceLogout, adminSoftDelete, adminRestoreUser, adminHardDelete, adminGenerateResetLink, updateProfileOptimistic,
 } from '../lib/adminActions'
 import {
   ArrowLeft, Copy, Check, Loader2, Pencil, KeyRound, LogOut, Ban, Trash2, RotateCcw, Shield,
@@ -31,6 +31,7 @@ export default function UserDetail() {
   const [deleteReason, setDeleteReason] = useState('')
   const [deleteStep, setDeleteStep] = useState(0)
   const [confirmName, setConfirmName] = useState('')
+  const [resetLink, setResetLink] = useState<string | null>(null)
 
   const { data: user, isLoading, isError, refetch } = useQuery({
     queryKey: ['user_detail', userId],
@@ -50,6 +51,21 @@ export default function UserDetail() {
       const { data, error } = await supabase.from('account_requests').select('*').eq('user_id', userId!).order('created_at', { ascending: false })
       if (error) throw error
       return (data || []) as AccountRequest[]
+    },
+  })
+
+  const { data: activities = [] } = useQuery({
+    queryKey: ['user_admin_activity', userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('admin_activity_log')
+        .select('id, action, admin_id, meta, created_at')
+        .eq('target_user_id', userId!)
+        .order('created_at', { ascending: false })
+        .limit(30)
+      if (error) throw error
+      return data || []
     },
   })
 
@@ -82,6 +98,7 @@ export default function UserDetail() {
       setMsg(okMsg)
       await queryClient.invalidateQueries({ queryKey: ['user_detail', userId] })
       await queryClient.invalidateQueries({ queryKey: ['user_profiles_admin'] })
+      await queryClient.invalidateQueries({ queryKey: ['user_admin_activity', userId] })
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Gagal')
     } finally { setBusy(false) }
@@ -111,6 +128,14 @@ export default function UserDetail() {
       </Link>
       {msg && <div className="p-3 rounded-lg bg-emerald-400/10 border border-emerald-500/20 text-emerald-400 text-xs">{msg}</div>}
       {err && <div className="p-3 rounded-lg bg-red-400/10 border border-red-500/20 text-red-400 text-xs">{err}</div>}
+      {resetLink && (
+        <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/10 space-y-2">
+          <p className="text-[11px] text-amber-300 font-semibold">Reset link (setara password — jangan share sembarangan)</p>
+          <p className="text-[10px] font-mono text-surface-300 break-all select-all">{resetLink}</p>
+          <button type="button" className="text-xs text-accent hover:underline"
+            onClick={() => { navigator.clipboard.writeText(resetLink); setMsg('Link disalin') }}>Copy link</button>
+        </div>
+      )}
 
       <div className="card border-surface-800 p-5 space-y-4">
         <div className="flex items-start gap-3">
@@ -139,20 +164,13 @@ export default function UserDetail() {
             <Info label="Terdaftar" value={new Date(user.created_at).toLocaleString('id-ID')} />
             <Info label="Update terakhir" value={new Date(user.updated_at).toLocaleString('id-ID')} />
             {user.last_password_reset_at && <Info label="Reset password terakhir" value={new Date(user.last_password_reset_at).toLocaleString('id-ID')} />}
-            {isDeleted && (
-              <>
-                <Info label="Dihapus" value={new Date(user.deleted_at!).toLocaleString('id-ID')} />
-                <Info label="Alasan hapus" value={user.delete_reason || '—'} />
-              </>
-            )}
+            {isDeleted && (<><Info label="Dihapus" value={new Date(user.deleted_at!).toLocaleString('id-ID')} /><Info label="Alasan hapus" value={user.delete_reason || '—'} /></>)}
           </div>
         ) : (
           <div className="space-y-2">
             <input className="input text-sm" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} placeholder="Nama *" />
             <select className="input text-sm" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-              <option value="admin">admin</option>
-              <option value="operator">operator</option>
-              <option value="viewer">viewer</option>
+              <option value="admin">admin</option><option value="operator">operator</option><option value="viewer">viewer</option>
             </select>
             <input className="input text-sm" value={form.cabang} onChange={(e) => setForm({ ...form, cabang: e.target.value })} placeholder="Cabang" />
             <input className="input text-sm" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="No. HP" />
@@ -169,6 +187,18 @@ export default function UserDetail() {
             <ActionBtn icon={<Pencil className="w-3 h-3" />} label="Edit" onClick={startEdit} />
             <ActionBtn icon={<KeyRound className="w-3 h-3" />} label="Reset Password" disabled={busy}
               onClick={() => runAction(() => adminResetPassword(user.id, window.location.origin + '/'), 'Email reset password dikirim')} />
+            <ActionBtn icon={<KeyRound className="w-3 h-3" />} label="Generate Link" disabled={busy}
+              onClick={async () => {
+                setBusy(true); setErr(null); setMsg(null); setResetLink(null)
+                try {
+                  const res = await adminGenerateResetLink(user.id)
+                  if (res?.action_link) { setResetLink(res.action_link); setMsg(res.message || 'Link siap.') }
+                  else setMsg('Link tidak tersedia')
+                  await queryClient.invalidateQueries({ queryKey: ['user_detail', userId] })
+                  await queryClient.invalidateQueries({ queryKey: ['user_admin_activity', userId] })
+                } catch (e: unknown) { setErr(e instanceof Error ? e.message : 'Gagal generate link') }
+                finally { setBusy(false) }
+              }} />
             <ActionBtn icon={<LogOut className="w-3 h-3" />} label="Force Logout" disabled={busy}
               onClick={() => { if (!window.confirm('Paksa logout semua device user ini?')) return; runAction(() => adminForceLogout(user.id), 'Semua session di-revoke') }} />
             <ActionBtn icon={<Ban className="w-3 h-3" />} label={user.is_active ? 'Nonaktifkan' : 'Aktifkan'} disabled={busy}
@@ -192,9 +222,7 @@ export default function UserDetail() {
               onClick={() => { if (!window.confirm('Restore user ini?')) return; runAction(() => adminRestoreUser(user.id), 'User di-restore') }} />
             {(() => {
               const days = (Date.now() - new Date(user.deleted_at!).getTime()) / 86400000
-              if (days < 30) {
-                return <p className="text-[11px] text-surface-500 w-full">Hard delete setelah 30 hari (sekarang {Math.floor(days)} hari).</p>
-              }
+              if (days < 30) return <p className="text-[11px] text-surface-500 w-full">Hard delete setelah 30 hari (sekarang {Math.floor(days)} hari).</p>
               return (
                 <ActionBtn icon={<Trash2 className="w-3 h-3" />} label="Hapus Permanen" danger disabled={busy}
                   onClick={() => {
@@ -212,57 +240,28 @@ export default function UserDetail() {
 
         {deleteStep > 0 && !isDeleted && (
           <div className="mt-3 p-3 rounded-lg border border-red-500/30 bg-red-500/5 space-y-2">
-            {deleteStep === 1 && (
-              <>
-                <p className="text-xs text-red-300">Yakin soft-delete akun <strong>{user.full_name}</strong>?</p>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => setDeleteStep(2)} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/20 text-red-400 border border-red-500/30">Lanjut</button>
-                  <button type="button" onClick={() => setDeleteStep(0)} className="text-xs text-surface-400">Batal</button>
-                </div>
-              </>
-            )}
-            {deleteStep === 2 && (
-              <>
-                <p className="text-xs text-surface-300">Ketik nama user: <strong>{user.full_name}</strong></p>
-                <input className="input text-xs" value={confirmName} onChange={(e) => setConfirmName(e.target.value)} />
-                <div className="flex gap-2">
-                  <button type="button" disabled={confirmName !== user.full_name} onClick={() => setDeleteStep(3)} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/20 text-red-400 border border-red-500/30 disabled:opacity-40">Lanjut</button>
-                  <button type="button" onClick={() => setDeleteStep(0)} className="text-xs text-surface-400">Batal</button>
-                </div>
-              </>
-            )}
-            {deleteStep === 3 && (
-              <>
-                <p className="text-xs text-surface-300">Alasan hapus (min 10 karakter)</p>
-                <textarea className="input text-xs min-h-[60px]" value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} />
-                <div className="flex gap-2">
-                  <button type="button" disabled={busy || deleteReason.trim().length < 10}
-                    onClick={() => { runAction(() => adminSoftDelete(user.id, deleteReason.trim()), 'User masuk arsip (soft delete)').then(() => { setDeleteStep(0); setDeleteReason(''); setConfirmName('') }) }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/20 text-red-400 border border-red-500/30 disabled:opacity-40">Konfirmasi Hapus</button>
-                  <button type="button" onClick={() => setDeleteStep(0)} className="text-xs text-surface-400">Batal</button>
-                </div>
-              </>
-            )}
+            {deleteStep === 1 && (<><p className="text-xs text-red-300">Yakin soft-delete akun <strong>{user.full_name}</strong>?</p><div className="flex gap-2"><button type="button" onClick={() => setDeleteStep(2)} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/20 text-red-400 border border-red-500/30">Lanjut</button><button type="button" onClick={() => setDeleteStep(0)} className="text-xs text-surface-400">Batal</button></div></>)}
+            {deleteStep === 2 && (<><p className="text-xs text-surface-300">Ketik nama user: <strong>{user.full_name}</strong></p><input className="input text-xs" value={confirmName} onChange={(e) => setConfirmName(e.target.value)} /><div className="flex gap-2"><button type="button" disabled={confirmName !== user.full_name} onClick={() => setDeleteStep(3)} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/20 text-red-400 border border-red-500/30 disabled:opacity-40">Lanjut</button><button type="button" onClick={() => setDeleteStep(0)} className="text-xs text-surface-400">Batal</button></div></>)}
+            {deleteStep === 3 && (<><p className="text-xs text-surface-300">Alasan hapus (min 10 karakter)</p><textarea className="input text-xs min-h-[60px]" value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} /><div className="flex gap-2"><button type="button" disabled={busy || deleteReason.trim().length < 10} onClick={() => { runAction(() => adminSoftDelete(user.id, deleteReason.trim()), 'User masuk arsip (soft delete)').then(() => { setDeleteStep(0); setDeleteReason(''); setConfirmName('') }) }} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/20 text-red-400 border border-red-500/30 disabled:opacity-40">Konfirmasi Hapus</button><button type="button" onClick={() => setDeleteStep(0)} className="text-xs text-surface-400">Batal</button></div></>)}
           </div>
         )}
       </div>
 
       <div className="card border-surface-800 p-4 space-y-2">
-        <h2 className="text-sm font-semibold text-surface-200 flex items-center gap-1.5">
-          <Shield className="w-3.5 h-3.5 text-accent" /> Riwayat Request ({requests.length})
-        </h2>
-        {requests.length === 0 ? (
-          <p className="text-xs text-surface-500">Tidak ada request terkait.</p>
-        ) : (
-          <ul className="space-y-2">
-            {requests.map((r) => (
-              <li key={r.id} className="text-xs border border-surface-800 rounded-lg px-3 py-2 text-surface-300">
-                {new Date(r.created_at).toLocaleString('id-ID')} — <span className="text-accent">{r.status}</span>
-                {r.requested_role ? ` · minta ${r.requested_role}` : ''}
-                {r.rejection_reason ? ` · ${r.rejection_reason}` : ''}
-              </li>
-            ))}
-          </ul>
+        <h2 className="text-sm font-semibold text-surface-200 flex items-center gap-1.5"><Shield className="w-3.5 h-3.5 text-accent" /> Riwayat Aksi Admin ({activities.length})</h2>
+        {activities.length === 0 ? <p className="text-xs text-surface-500">Belum ada aksi admin tercatat.</p> : (
+          <ul className="space-y-2">{activities.map((a: { id: string; action: string; created_at: string }) => (
+            <li key={a.id} className="text-xs border border-surface-800 rounded-lg px-3 py-2 text-surface-300">{new Date(a.created_at).toLocaleString('id-ID')} — <span className="text-accent">{a.action}</span></li>
+          ))}</ul>
+        )}
+      </div>
+
+      <div className="card border-surface-800 p-4 space-y-2">
+        <h2 className="text-sm font-semibold text-surface-200 flex items-center gap-1.5"><Shield className="w-3.5 h-3.5 text-accent" /> Riwayat Request ({requests.length})</h2>
+        {requests.length === 0 ? <p className="text-xs text-surface-500">Tidak ada request terkait.</p> : (
+          <ul className="space-y-2">{requests.map((r) => (
+            <li key={r.id} className="text-xs border border-surface-800 rounded-lg px-3 py-2 text-surface-300">{new Date(r.created_at).toLocaleString('id-ID')} — <span className="text-accent">{r.status}</span>{r.requested_role ? ` · minta ${r.requested_role}` : ''}{r.rejection_reason ? ` · ${r.rejection_reason}` : ''}</li>
+          ))}</ul>
         )}
       </div>
     </div>
@@ -270,12 +269,7 @@ export default function UserDetail() {
 }
 
 function Info({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div>
-      <p className="text-[10px] uppercase tracking-wider text-surface-500">{label}</p>
-      <p className="text-surface-200 text-sm">{value}</p>
-    </div>
-  )
+  return (<div><p className="text-[10px] uppercase tracking-wider text-surface-500">{label}</p><p className="text-surface-200 text-sm">{value}</p></div>)
 }
 
 function ActionBtn({ icon, label, onClick, disabled, danger }: { icon: React.ReactNode; label: string; onClick: () => void; disabled?: boolean; danger?: boolean }) {
