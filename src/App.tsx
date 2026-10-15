@@ -7,6 +7,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { NetworkStatus } from './components/NetworkStatus'
 import { Skeleton } from './components/Skeleton'
 import { fetchMyProfile, UserProfile } from './lib/authProfile'
+import { AuthProfileProvider } from './lib/AuthProfileContext'
 
 const Login = lazy(() => import('./pages/Login'))
 const MasterUnit = lazy(() => import('./pages/MasterUnit'))
@@ -132,6 +133,7 @@ function App() {
       ) : !profile ? (
         <InactiveGate email={session.user?.email} onLogout={handleLogout} />
       ) : (
+        <AuthProfileProvider profile={profile}>
         <Layout session={session} profile={profile}>
           <Suspense fallback={<RouteFallback />}>
             <Routes>
@@ -153,6 +155,7 @@ function App() {
             </Routes>
           </Suspense>
         </Layout>
+        </AuthProfileProvider>
       )}
     </ErrorBoundary>
   )
